@@ -1,105 +1,112 @@
-/// ContextBundle entity for L2 ContextOps Layer.
+/// InternalContextBundle entity for L2 ContextOps Layer.
 ///
 /// Represents short context bundles for LLM interactions.
+/// Reference: 03-data-model-specification.md Section 2.15.2
 library;
 
-/// ContextBundle represents a curated context for LLM operations.
+import 'fact.dart';
+import 'summary_node.dart';
+
+/// InternalContextBundle represents an internal context bundle for LLM operations.
 ///
-/// Bundles relevant facts, entities, and summaries for a specific query.
-class ContextBundle {
+/// Extends the port-level ContextBundle (from mcp_bundle) with implementation
+/// details for context generation.
+/// Reference: Design Section 2.15.2
+class InternalContextBundle {
   /// Unique bundle identifier.
   final String bundleId;
 
-  /// Bundle purpose/type.
-  final ContextPurpose purpose;
+  /// Workspace identifier for multi-tenant isolation.
+  final String workspaceId;
 
   /// Query or prompt this context is for.
   final String query;
 
-  /// Included events (by ID).
-  final List<String> eventIds;
+  /// Confirmed facts (latest, supersedes reflected).
+  /// Reference: Design Section 2.15.2 - List<Fact>.
+  final List<Fact> facts;
 
-  /// Included entities (by ID).
-  final List<String> entityIds;
+  /// Relevant cumulative summaries.
+  /// Reference: Design Section 2.15.2 - List<SummaryNode>.
+  final List<SummaryNode> summaries;
 
-  /// Included summary nodes (by ID).
-  final List<String> summaryIds;
+  /// Evidence/content references.
+  /// Reference: Design Section 2.15.2 - List<String>.
+  final List<String> evidenceRefs;
 
-  /// Raw context segments.
-  final List<ContextSegment> segments;
+  /// Unresolved items/conflicts requiring attention.
+  /// Reference: Design Section 2.15.2 - OpenQuestion support.
+  final List<OpenQuestion> openQuestions;
 
   /// Total token count estimate.
-  final int tokenCount;
+  final int tokenEstimate;
 
-  /// Maximum token budget.
-  final int tokenBudget;
+  /// Point-in-time snapshot for reproducibility.
+  /// Reference: Design Section 2.15.2 - enables time-travel queries.
+  final DateTime asOf;
 
-  /// Relevance scores for included items.
-  final Map<String, double> relevanceScores;
+  /// Policy version used for generating this bundle.
+  /// Reference: Design Section 2.15.2 - enables reproducibility.
+  final String policyVersion;
+
+  /// Budget constraints for context generation.
+  /// Reference: Design Section 2.15.2 - BundleBudget support.
+  final BundleBudget budget;
 
   /// When this bundle was created.
   final DateTime createdAt;
 
-  /// Bundle expiration time.
-  final DateTime? expiresAt;
-
-  /// Context selection strategy used.
-  final SelectionStrategy strategy;
-
   /// Additional metadata.
   final Map<String, dynamic> metadata;
 
-  const ContextBundle({
+  const InternalContextBundle({
     required this.bundleId,
-    required this.purpose,
+    required this.workspaceId,
     required this.query,
-    this.eventIds = const [],
-    this.entityIds = const [],
-    this.summaryIds = const [],
-    this.segments = const [],
-    this.tokenCount = 0,
-    this.tokenBudget = 4096,
-    this.relevanceScores = const {},
+    this.facts = const [],
+    this.summaries = const [],
+    this.evidenceRefs = const [],
+    this.openQuestions = const [],
+    this.tokenEstimate = 0,
+    required this.asOf,
+    required this.policyVersion,
+    this.budget = const BundleBudget(),
     required this.createdAt,
-    this.expiresAt,
-    this.strategy = SelectionStrategy.relevance,
     this.metadata = const {},
   });
 
-  factory ContextBundle.fromJson(Map<String, dynamic> json) {
-    return ContextBundle(
+  factory InternalContextBundle.fromJson(Map<String, dynamic> json) {
+    return InternalContextBundle(
       bundleId: json['bundleId'] as String? ?? '',
-      purpose: ContextPurpose.fromString(json['purpose'] as String? ?? 'query'),
+      workspaceId: json['workspaceId'] as String? ?? 'default',
       query: json['query'] as String? ?? '',
-      eventIds: (json['eventIds'] as List<dynamic>?)
+      facts: (json['facts'] as List<dynamic>?)
+              ?.map((e) => Fact.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          [],
+      summaries: (json['summaries'] as List<dynamic>?)
+              ?.map((e) => SummaryNode.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          [],
+      evidenceRefs: (json['evidenceRefs'] as List<dynamic>?)
               ?.map((e) => e as String)
               .toList() ??
           [],
-      entityIds: (json['entityIds'] as List<dynamic>?)
-              ?.map((e) => e as String)
+      openQuestions: (json['openQuestions'] as List<dynamic>?)
+              ?.map((e) => OpenQuestion.fromJson(e as Map<String, dynamic>))
               .toList() ??
           [],
-      summaryIds: (json['summaryIds'] as List<dynamic>?)
-              ?.map((e) => e as String)
-              .toList() ??
-          [],
-      segments: (json['segments'] as List<dynamic>?)
-              ?.map((e) => ContextSegment.fromJson(e as Map<String, dynamic>))
-              .toList() ??
-          [],
-      tokenCount: json['tokenCount'] as int? ?? 0,
-      tokenBudget: json['tokenBudget'] as int? ?? 4096,
-      relevanceScores: (json['relevanceScores'] as Map<String, dynamic>?)
-              ?.map((k, v) => MapEntry(k, (v as num).toDouble())) ??
-          {},
+      tokenEstimate: json['tokenEstimate'] as int? ?? 0,
+      asOf: json['asOf'] != null
+          ? DateTime.parse(json['asOf'] as String)
+          : DateTime.now(),
+      policyVersion: json['policyVersion'] as String? ?? '1.0.0',
+      budget: json['budget'] != null
+          ? BundleBudget.fromJson(json['budget'] as Map<String, dynamic>)
+          : const BundleBudget(),
       createdAt: json['createdAt'] != null
           ? DateTime.parse(json['createdAt'] as String)
           : DateTime.now(),
-      expiresAt: json['expiresAt'] != null
-          ? DateTime.parse(json['expiresAt'] as String)
-          : null,
-      strategy: SelectionStrategy.fromString(
-          json['strategy'] as String? ?? 'relevance'),
       metadata: json['metadata'] as Map<String, dynamic>? ?? {},
     );
   }
@@ -107,209 +114,174 @@ class ContextBundle {
   Map<String, dynamic> toJson() {
     return {
       'bundleId': bundleId,
-      'purpose': purpose.name,
+      'workspaceId': workspaceId,
       'query': query,
-      if (eventIds.isNotEmpty) 'eventIds': eventIds,
-      if (entityIds.isNotEmpty) 'entityIds': entityIds,
-      if (summaryIds.isNotEmpty) 'summaryIds': summaryIds,
-      if (segments.isNotEmpty)
-        'segments': segments.map((s) => s.toJson()).toList(),
-      'tokenCount': tokenCount,
-      'tokenBudget': tokenBudget,
-      if (relevanceScores.isNotEmpty) 'relevanceScores': relevanceScores,
+      if (facts.isNotEmpty)
+        'facts': facts.map((f) => f.toJson()).toList(),
+      if (summaries.isNotEmpty)
+        'summaries': summaries.map((s) => s.toJson()).toList(),
+      if (evidenceRefs.isNotEmpty) 'evidenceRefs': evidenceRefs,
+      if (openQuestions.isNotEmpty)
+        'openQuestions': openQuestions.map((q) => q.toJson()).toList(),
+      'tokenEstimate': tokenEstimate,
+      'asOf': asOf.toIso8601String(),
+      'policyVersion': policyVersion,
+      'budget': budget.toJson(),
       'createdAt': createdAt.toIso8601String(),
-      if (expiresAt != null) 'expiresAt': expiresAt!.toIso8601String(),
-      'strategy': strategy.name,
       if (metadata.isNotEmpty) 'metadata': metadata,
     };
   }
 
-  ContextBundle copyWith({
+  InternalContextBundle copyWith({
     String? bundleId,
-    ContextPurpose? purpose,
+    String? workspaceId,
     String? query,
-    List<String>? eventIds,
-    List<String>? entityIds,
-    List<String>? summaryIds,
-    List<ContextSegment>? segments,
-    int? tokenCount,
-    int? tokenBudget,
-    Map<String, double>? relevanceScores,
+    List<Fact>? facts,
+    List<SummaryNode>? summaries,
+    List<String>? evidenceRefs,
+    List<OpenQuestion>? openQuestions,
+    int? tokenEstimate,
+    DateTime? asOf,
+    String? policyVersion,
+    BundleBudget? budget,
     DateTime? createdAt,
-    DateTime? expiresAt,
-    SelectionStrategy? strategy,
     Map<String, dynamic>? metadata,
   }) {
-    return ContextBundle(
+    return InternalContextBundle(
       bundleId: bundleId ?? this.bundleId,
-      purpose: purpose ?? this.purpose,
+      workspaceId: workspaceId ?? this.workspaceId,
       query: query ?? this.query,
-      eventIds: eventIds ?? this.eventIds,
-      entityIds: entityIds ?? this.entityIds,
-      summaryIds: summaryIds ?? this.summaryIds,
-      segments: segments ?? this.segments,
-      tokenCount: tokenCount ?? this.tokenCount,
-      tokenBudget: tokenBudget ?? this.tokenBudget,
-      relevanceScores: relevanceScores ?? this.relevanceScores,
+      facts: facts ?? this.facts,
+      summaries: summaries ?? this.summaries,
+      evidenceRefs: evidenceRefs ?? this.evidenceRefs,
+      openQuestions: openQuestions ?? this.openQuestions,
+      tokenEstimate: tokenEstimate ?? this.tokenEstimate,
+      asOf: asOf ?? this.asOf,
+      policyVersion: policyVersion ?? this.policyVersion,
+      budget: budget ?? this.budget,
       createdAt: createdAt ?? this.createdAt,
-      expiresAt: expiresAt ?? this.expiresAt,
-      strategy: strategy ?? this.strategy,
       metadata: metadata ?? this.metadata,
     );
   }
 
   /// Check if bundle is within token budget.
-  bool get isWithinBudget => tokenCount <= tokenBudget;
+  bool get isWithinBudget => tokenEstimate <= budget.maxTokens;
 
-  /// Remaining token capacity.
-  int get remainingTokens => tokenBudget - tokenCount;
-
-  /// Check if bundle has expired.
-  bool get isExpired =>
-      expiresAt != null && DateTime.now().isAfter(expiresAt!);
+  /// Check if bundle has unresolved questions.
+  bool get hasOpenQuestions => openQuestions.isNotEmpty;
 
   @override
   String toString() =>
-      'ContextBundle($bundleId, purpose: $purpose, tokens: $tokenCount/$tokenBudget)';
+      'InternalContextBundle($bundleId, tokens: $tokenEstimate/${budget.maxTokens})';
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is ContextBundle && bundleId == other.bundleId;
+      other is InternalContextBundle && bundleId == other.bundleId;
 
   @override
   int get hashCode => bundleId.hashCode;
 }
 
-/// Context purpose types.
-enum ContextPurpose {
-  /// Query answering.
-  query,
+/// Backward compatibility alias.
+@Deprecated('Use InternalContextBundle instead')
+typedef ContextBundle = InternalContextBundle;
 
-  /// Summarization.
-  summarization,
+/// OpenQuestion represents an unresolved item requiring attention.
+///
+/// Reference: 03-data-model-specification.md Section 2.15.2
+class OpenQuestion {
+  /// Unique question identifier.
+  final String questionId;
 
-  /// Generation task.
-  generation,
+  /// Question type (unresolved | conflict | missingEvidence).
+  final String questionType;
 
-  /// Validation task.
-  validation,
+  /// Description of what needs resolution.
+  final String description;
 
-  /// Analysis task.
-  analysis,
+  /// Related candidate/event IDs.
+  final List<String> relatedIds;
 
-  /// Conversation context.
-  conversation;
+  /// Standardized reason code.
+  final String? reasonCode;
 
-  static ContextPurpose fromString(String value) {
-    return ContextPurpose.values.firstWhere(
-      (e) => e.name == value,
-      orElse: () => ContextPurpose.query,
-    );
-  }
-}
-
-/// Context selection strategies.
-enum SelectionStrategy {
-  /// Select by relevance score.
-  relevance,
-
-  /// Select most recent first.
-  recency,
-
-  /// Balanced relevance and recency.
-  balanced,
-
-  /// Diverse selection across topics.
-  diversity,
-
-  /// Manual/explicit selection.
-  manual;
-
-  static SelectionStrategy fromString(String value) {
-    return SelectionStrategy.values.firstWhere(
-      (e) => e.name == value,
-      orElse: () => SelectionStrategy.relevance,
-    );
-  }
-}
-
-/// A segment of context content.
-class ContextSegment {
-  /// Segment type.
-  final SegmentType type;
-
-  /// Source reference (event/entity/summary ID).
-  final String sourceId;
-
-  /// Segment content.
-  final String content;
-
-  /// Token count for this segment.
-  final int tokenCount;
-
-  /// Relevance score.
-  final double relevance;
-
-  /// Position/order in context.
-  final int position;
-
-  const ContextSegment({
-    required this.type,
-    required this.sourceId,
-    required this.content,
-    this.tokenCount = 0,
-    this.relevance = 0.0,
-    this.position = 0,
+  const OpenQuestion({
+    required this.questionId,
+    required this.questionType,
+    required this.description,
+    this.relatedIds = const [],
+    this.reasonCode,
   });
 
-  factory ContextSegment.fromJson(Map<String, dynamic> json) {
-    return ContextSegment(
-      type: SegmentType.fromString(json['type'] as String? ?? 'fact'),
-      sourceId: json['sourceId'] as String? ?? '',
-      content: json['content'] as String? ?? '',
-      tokenCount: json['tokenCount'] as int? ?? 0,
-      relevance: (json['relevance'] as num?)?.toDouble() ?? 0.0,
-      position: json['position'] as int? ?? 0,
+  factory OpenQuestion.fromJson(Map<String, dynamic> json) {
+    return OpenQuestion(
+      questionId: json['questionId'] as String? ?? '',
+      questionType: json['questionType'] as String? ?? 'unresolved',
+      description: json['description'] as String? ?? '',
+      relatedIds: (json['relatedIds'] as List<dynamic>?)
+              ?.map((e) => e as String)
+              .toList() ??
+          [],
+      reasonCode: json['reasonCode'] as String?,
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
-      'type': type.name,
-      'sourceId': sourceId,
-      'content': content,
-      'tokenCount': tokenCount,
-      'relevance': relevance,
-      'position': position,
+      'questionId': questionId,
+      'questionType': questionType,
+      'description': description,
+      if (relatedIds.isNotEmpty) 'relatedIds': relatedIds,
+      if (reasonCode != null) 'reasonCode': reasonCode,
     };
   }
 }
 
-/// Context segment types.
-enum SegmentType {
-  /// Fact/event content.
-  fact,
+/// BundleBudget defines constraints for context generation.
+///
+/// Reference: 03-data-model-specification.md Section 2.15.2
+class BundleBudget {
+  /// Maximum number of nodes to include.
+  final int maxNodes;
 
-  /// Entity description.
-  entity,
+  /// Maximum token count.
+  final int maxTokens;
 
-  /// Summary content.
-  summary,
+  /// Maximum sentences (for summaries).
+  final int maxSentences;
 
-  /// System instruction.
-  instruction,
+  const BundleBudget({
+    this.maxNodes = 100,
+    this.maxTokens = 4096,
+    this.maxSentences = 50,
+  });
 
-  /// Example content.
-  example,
+  factory BundleBudget.fromJson(Map<String, dynamic> json) {
+    return BundleBudget(
+      maxNodes: json['maxNodes'] as int? ?? 100,
+      maxTokens: json['maxTokens'] as int? ?? 4096,
+      maxSentences: json['maxSentences'] as int? ?? 50,
+    );
+  }
 
-  /// User query/prompt.
-  query;
+  Map<String, dynamic> toJson() {
+    return {
+      'maxNodes': maxNodes,
+      'maxTokens': maxTokens,
+      'maxSentences': maxSentences,
+    };
+  }
 
-  static SegmentType fromString(String value) {
-    return SegmentType.values.firstWhere(
-      (e) => e.name == value,
-      orElse: () => SegmentType.fact,
+  BundleBudget copyWith({
+    int? maxNodes,
+    int? maxTokens,
+    int? maxSentences,
+  }) {
+    return BundleBudget(
+      maxNodes: maxNodes ?? this.maxNodes,
+      maxTokens: maxTokens ?? this.maxTokens,
+      maxSentences: maxSentences ?? this.maxSentences,
     );
   }
 }

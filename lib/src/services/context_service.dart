@@ -6,7 +6,7 @@ library;
 import '../domain/entities/context_bundle.dart';
 import '../domain/entities/summary_node.dart';
 import '../domain/entities/claim.dart';
-import '../domain/entities/event.dart';
+import '../domain/entities/fact.dart';
 import '../ports/storage_port.dart';
 import '../ports/llm_port.dart';
 
@@ -15,8 +15,8 @@ class ContextService {
   /// Context storage port.
   final ContextStoragePort _storage;
 
-  /// Event storage port.
-  final EventStoragePort _eventStorage;
+  /// Fact storage port.
+  final FactStoragePort _factStorage;
 
   /// LLM port for summarization.
   final LlmPort? _llm;
@@ -26,11 +26,11 @@ class ContextService {
 
   ContextService({
     required ContextStoragePort storage,
-    required EventStoragePort eventStorage,
+    required FactStoragePort factStorage,
     LlmPort? llm,
     ClaimVerificationPort? verifier,
   })  : _storage = storage,
-        _eventStorage = eventStorage,
+        _factStorage = factStorage,
         _llm = llm,
         _verifier = verifier;
 
@@ -39,52 +39,44 @@ class ContextService {
   // =========================================================================
 
   /// Build context bundle for a query.
-  Future<ContextBundle> buildContext({
+  Future<InternalContextBundle> buildContext({
+    required String workspaceId,
     required String query,
-    required ContextPurpose purpose,
     int tokenBudget = 4096,
-    SelectionStrategy strategy = SelectionStrategy.relevance,
   }) async {
     final bundleId = _generateId('ctx');
     final now = DateTime.now();
 
-    // Fetch relevant events
-    final events = await _eventStorage.queryEvents(const EventQuery(
-      status: EventStatus.active,
+    // Fetch relevant confirmed facts
+    final facts = await _factStorage.queryFacts(const FactQuery(
+      status: FactStatus.confirmed,
       limit: 100,
     ));
 
-    // Build segments from events
-    final segments = <ContextSegment>[];
+    // Estimate tokens and trim to budget
     var totalTokens = 0;
+    final includedFacts = <Fact>[];
 
-    for (final event in events) {
-      final content = _eventToContent(event);
+    for (final fact in facts) {
+      final content = _factToContent(fact);
       final tokens = _estimateTokens(content);
 
       if (totalTokens + tokens > tokenBudget) break;
 
-      segments.add(ContextSegment(
-        type: SegmentType.fact,
-        sourceId: event.eventId,
-        content: content,
-        tokenCount: tokens,
-        relevance: 1.0,
-        position: segments.length,
-      ));
+      includedFacts.add(fact);
       totalTokens += tokens;
     }
 
-    final bundle = ContextBundle(
+    final bundle = InternalContextBundle(
       bundleId: bundleId,
-      purpose: purpose,
+      workspaceId: workspaceId,
       query: query,
-      eventIds: segments.map((s) => s.sourceId).toList(),
-      segments: segments,
-      tokenCount: totalTokens,
-      tokenBudget: tokenBudget,
+      facts: includedFacts,
+      tokenEstimate: totalTokens,
+      budget: BundleBudget(maxTokens: tokenBudget),
+      asOf: now,
+      policyVersion: '1.0.0',
       createdAt: now,
-      strategy: strategy,
     );
 
     await _storage.saveContextBundle(bundle);
@@ -92,7 +84,7 @@ class ContextService {
   }
 
   /// Get context bundle by ID.
-  Future<ContextBundle?> getContextBundle(String bundleId) {
+  Future<InternalContextBundle?> getContextBundle(String bundleId) {
     return _storage.getContextBundle(bundleId);
   }
 
@@ -100,13 +92,11 @@ class ContextService {
   // Summary Operations
   // =========================================================================
 
-  /// Create summary from events.
+  /// Create summary from facts.
   Future<SummaryNode> createSummary({
-    required SummaryType summaryType,
-    required String title,
-    required List<String> eventIds,
-    String? scope,
-    String? parentId,
+    required String workspaceId,
+    required List<String> factIds,
+    required SummaryScope scope,
   }) async {
     if (_llm == null) {
       throw StateError('LLM port not configured for summarization');
@@ -115,29 +105,27 @@ class ContextService {
     final nodeId = _generateId('sum');
     final now = DateTime.now();
 
-    // Fetch events
-    final events = <Event>[];
-    for (final eventId in eventIds) {
-      final event = await _eventStorage.getEvent(eventId);
-      if (event != null) events.add(event);
+    // Fetch facts
+    final facts = <Fact>[];
+    for (final factId in factIds) {
+      final fact = await _factStorage.getFact(factId);
+      if (fact != null) facts.add(fact);
     }
 
     // Generate summary using LLM
-    final content = await _generateSummary(events);
-    final tokens = _estimateTokens(content);
+    final content = await _generateSummary(facts);
 
     final node = SummaryNode(
-      nodeId: nodeId,
-      summaryType: summaryType,
-      title: title,
-      content: content,
+      summaryId: nodeId,
+      workspaceId: workspaceId,
+      summaryText: content,
+      coversFactIds: factIds,
+      asOf: now,
+      policyVersion: '1.0.0',
       scope: scope,
-      parentId: parentId,
-      sourceEventIds: eventIds,
-      tokenCount: tokens,
       createdAt: now,
       updatedAt: now,
-      status: SummaryStatus.current,
+      status: SummaryStatus.active,
     );
 
     await _storage.saveSummaryNode(node);
@@ -149,11 +137,6 @@ class ContextService {
     return _storage.getSummaryNode(nodeId);
   }
 
-  /// Get child summaries.
-  Future<List<SummaryNode>> getChildSummaries(String parentId) {
-    return _storage.getChildSummaries(parentId);
-  }
-
   /// Refresh stale summary.
   Future<SummaryNode> refreshSummary(String nodeId) async {
     final node = await _storage.getSummaryNode(nodeId);
@@ -161,20 +144,18 @@ class ContextService {
       throw ArgumentError('Summary node not found: $nodeId');
     }
 
-    // Mark as updating
-    final updating = node.copyWith(
-      status: SummaryStatus.updating,
+    // Mark as stale before regenerating
+    final stale = node.copyWith(
+      status: SummaryStatus.stale,
       updatedAt: DateTime.now(),
     );
-    await _storage.saveSummaryNode(updating);
+    await _storage.saveSummaryNode(stale);
 
     // Regenerate summary
     return createSummary(
-      summaryType: node.summaryType,
-      title: node.title,
-      eventIds: node.sourceEventIds,
+      workspaceId: node.workspaceId,
+      factIds: node.coversFactIds,
       scope: node.scope,
-      parentId: node.parentId,
     );
   }
 
@@ -183,7 +164,8 @@ class ContextService {
   // =========================================================================
 
   /// Extract and verify claims from text.
-  Future<List<Claim>> verifyClaims({
+  Future<List<VerifiableClaim>> verifyClaims({
+    required String workspaceId,
     required String responseText,
     String? responseId,
     List<String>? evidenceIds,
@@ -194,10 +176,11 @@ class ContextService {
 
     // Extract claims (simple sentence splitting for now)
     final statements = _extractStatements(responseText);
-    final claims = <Claim>[];
+    final claims = <VerifiableClaim>[];
 
     for (final statement in statements) {
       final claim = await _verifyClaim(
+        workspaceId: workspaceId,
         statement: statement,
         responseId: responseId,
         evidenceIds: evidenceIds,
@@ -210,12 +193,12 @@ class ContextService {
   }
 
   /// Get claim by ID.
-  Future<Claim?> getClaim(String claimId) {
+  Future<VerifiableClaim?> getClaim(String claimId) {
     return _storage.getClaim(claimId);
   }
 
   /// Get pending claims.
-  Future<List<Claim>> getPendingClaims() {
+  Future<List<VerifiableClaim>> getPendingClaims() {
     return _storage.getPendingClaims();
   }
 
@@ -223,27 +206,27 @@ class ContextService {
   // Private Methods
   // =========================================================================
 
-  String _eventToContent(Event event) {
+  String _factToContent(Fact fact) {
     final buffer = StringBuffer();
-    buffer.writeln('${event.eventType}: ${event.summary}');
-    if (event.data.isNotEmpty) {
-      for (final entry in event.data.entries) {
+    buffer.writeln('${fact.factType}: ${fact.summary}');
+    if (fact.payload.isNotEmpty) {
+      for (final entry in fact.payload.entries) {
         buffer.writeln('  ${entry.key}: ${entry.value}');
       }
     }
     return buffer.toString();
   }
 
-  Future<String> _generateSummary(List<Event> events) async {
-    if (_llm == null || events.isEmpty) {
-      return 'No events to summarize.';
+  Future<String> _generateSummary(List<Fact> facts) async {
+    if (_llm == null || facts.isEmpty) {
+      return 'No facts to summarize.';
     }
 
-    final eventsText = events.map(_eventToContent).join('\n');
+    final factsText = facts.map(_factToContent).join('\n');
 
     final response = await _llm!.complete(LlmRequest(
-      systemPrompt: 'You are a concise summarizer. Summarize the following events.',
-      prompt: eventsText,
+      systemPrompt: 'You are a concise summarizer. Summarize the following facts.',
+      prompt: factsText,
       maxTokens: 500,
     ));
 
@@ -259,7 +242,8 @@ class ContextService {
         .toList();
   }
 
-  Future<Claim> _verifyClaim({
+  Future<VerifiableClaim> _verifyClaim({
+    required String workspaceId,
     required String statement,
     String? responseId,
     List<String>? evidenceIds,
@@ -270,10 +254,10 @@ class ContextService {
     // Gather evidence
     final evidence = <String>[];
     if (evidenceIds != null) {
-      for (final eventId in evidenceIds) {
-        final event = await _eventStorage.getEvent(eventId);
-        if (event != null) {
-          evidence.add(_eventToContent(event));
+      for (final factId in evidenceIds) {
+        final fact = await _factStorage.getFact(factId);
+        if (fact != null) {
+          evidence.add(_factToContent(fact));
         }
       }
     }
@@ -295,13 +279,14 @@ class ContextService {
       );
     }
 
-    return Claim(
+    return VerifiableClaim(
       claimId: claimId,
+      workspaceId: workspaceId,
       statement: statement,
       responseId: responseId,
       verificationStatus: result != null
-          ? VerificationStatus.verified
-          : VerificationStatus.pending,
+          ? ClaimStatus.supported
+          : ClaimStatus.pending,
       verificationResult: result,
       confidence: result?.confidence ?? 0.0,
       createdAt: now,

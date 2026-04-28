@@ -1,96 +1,70 @@
 /// Fragment entity for L0 Evidence Layer.
 ///
 /// Represents extracted fields from evidence.
+/// Reference: 03-data-model-specification.md Section 2.2
 library;
 
 /// Fragment represents an extracted piece of data from evidence.
 ///
 /// Fragments are created through rule-based extraction, OCR, or LLM analysis.
 /// Each fragment has a confidence score and may be proposed or confirmed.
+/// Uses fields map for multi-field extraction (design-compliant).
 class Fragment {
   /// Unique fragment identifier.
   final String fragmentId;
 
+  /// Workspace identifier for multi-tenant isolation.
+  final String workspaceId;
+
   /// Parent evidence ID.
   final String evidenceId;
 
-  /// Field name/type (e.g., 'amount', 'date', 'merchant').
-  final String field;
-
-  /// Extracted value.
-  final dynamic value;
-
-  /// Normalized value (if applicable).
-  final dynamic normalizedValue;
-
-  /// Data type of the value.
-  final FragmentValueType valueType;
+  /// Extracted fields (design-compliant).
+  /// Reference: Design Section 2.2 - fields: Map<String, dynamic>
+  final Map<String, dynamic> fields;
 
   /// Confidence score (0.0 to 1.0).
   final double confidence;
 
-  /// Extraction method used.
-  final ExtractionMethod method;
+  /// Extractor type used for extraction.
+  /// Reference: Design Section 2.2 - ExtractorType.
+  final ExtractorType extractor;
 
   /// Fragment status.
   final FragmentStatus status;
 
-  /// Position in source (if applicable).
-  final SourcePosition? position;
-
-  /// When this fragment was extracted.
-  final DateTime extractedAt;
-
-  /// User who confirmed this fragment (if confirmed).
-  final String? confirmedBy;
-
-  /// When this fragment was confirmed.
-  final DateTime? confirmedAt;
+  /// When this fragment was created/extracted.
+  final DateTime createdAt;
 
   /// Additional metadata.
   final Map<String, dynamic> metadata;
 
   const Fragment({
     required this.fragmentId,
+    required this.workspaceId,
     required this.evidenceId,
-    required this.field,
-    required this.value,
-    this.normalizedValue,
-    this.valueType = FragmentValueType.string,
+    this.fields = const {},
     required this.confidence,
-    this.method = ExtractionMethod.rule,
+    this.extractor = ExtractorType.rule,
     this.status = FragmentStatus.proposed,
-    this.position,
-    required this.extractedAt,
-    this.confirmedBy,
-    this.confirmedAt,
+    required this.createdAt,
     this.metadata = const {},
   });
 
   factory Fragment.fromJson(Map<String, dynamic> json) {
     return Fragment(
       fragmentId: json['fragmentId'] as String? ?? '',
+      workspaceId: json['workspaceId'] as String? ?? 'default',
       evidenceId: json['evidenceId'] as String? ?? '',
-      field: json['field'] as String? ?? '',
-      value: json['value'],
-      normalizedValue: json['normalizedValue'],
-      valueType:
-          FragmentValueType.fromString(json['valueType'] as String? ?? 'string'),
+      fields: json['fields'] as Map<String, dynamic>? ?? {},
       confidence: (json['confidence'] as num?)?.toDouble() ?? 0.0,
-      method:
-          ExtractionMethod.fromString(json['method'] as String? ?? 'rule'),
+      extractor:
+          ExtractorType.fromString(json['extractor'] as String? ?? json['method'] as String? ?? 'rule'),
       status:
           FragmentStatus.fromString(json['status'] as String? ?? 'proposed'),
-      position: json['position'] != null
-          ? SourcePosition.fromJson(json['position'] as Map<String, dynamic>)
-          : null,
-      extractedAt: json['extractedAt'] != null
-          ? DateTime.parse(json['extractedAt'] as String)
+      createdAt: json['createdAt'] != null
+          ? DateTime.parse(json['createdAt'] as String)
           : DateTime.now(),
-      confirmedBy: json['confirmedBy'] as String?,
-      confirmedAt: json['confirmedAt'] != null
-          ? DateTime.parse(json['confirmedAt'] as String)
-          : null,
       metadata: json['metadata'] as Map<String, dynamic>? ?? {},
     );
   }
@@ -98,52 +72,37 @@ class Fragment {
   Map<String, dynamic> toJson() {
     return {
       'fragmentId': fragmentId,
+      'workspaceId': workspaceId,
       'evidenceId': evidenceId,
-      'field': field,
-      'value': value,
-      if (normalizedValue != null) 'normalizedValue': normalizedValue,
-      'valueType': valueType.name,
+      if (fields.isNotEmpty) 'fields': fields,
       'confidence': confidence,
-      'method': method.name,
+      'extractor': extractor.name,
       'status': status.name,
-      if (position != null) 'position': position!.toJson(),
-      'extractedAt': extractedAt.toIso8601String(),
-      if (confirmedBy != null) 'confirmedBy': confirmedBy,
-      if (confirmedAt != null) 'confirmedAt': confirmedAt!.toIso8601String(),
+      'createdAt': createdAt.toIso8601String(),
       if (metadata.isNotEmpty) 'metadata': metadata,
     };
   }
 
   Fragment copyWith({
     String? fragmentId,
+    String? workspaceId,
     String? evidenceId,
-    String? field,
-    dynamic value,
-    dynamic normalizedValue,
-    FragmentValueType? valueType,
+    Map<String, dynamic>? fields,
     double? confidence,
-    ExtractionMethod? method,
+    ExtractorType? extractor,
     FragmentStatus? status,
-    SourcePosition? position,
-    DateTime? extractedAt,
-    String? confirmedBy,
-    DateTime? confirmedAt,
+    DateTime? createdAt,
     Map<String, dynamic>? metadata,
   }) {
     return Fragment(
       fragmentId: fragmentId ?? this.fragmentId,
+      workspaceId: workspaceId ?? this.workspaceId,
       evidenceId: evidenceId ?? this.evidenceId,
-      field: field ?? this.field,
-      value: value ?? this.value,
-      normalizedValue: normalizedValue ?? this.normalizedValue,
-      valueType: valueType ?? this.valueType,
+      fields: fields ?? this.fields,
       confidence: confidence ?? this.confidence,
-      method: method ?? this.method,
+      extractor: extractor ?? this.extractor,
       status: status ?? this.status,
-      position: position ?? this.position,
-      extractedAt: extractedAt ?? this.extractedAt,
-      confirmedBy: confirmedBy ?? this.confirmedBy,
-      confirmedAt: confirmedAt ?? this.confirmedAt,
+      createdAt: createdAt ?? this.createdAt,
       metadata: metadata ?? this.metadata,
     );
   }
@@ -156,7 +115,7 @@ class Fragment {
 
   @override
   String toString() =>
-      'Fragment($fragmentId, field: $field, confidence: $confidence)';
+      'Fragment($fragmentId, confidence: $confidence)';
 
   @override
   bool operator ==(Object other) =>
@@ -167,59 +126,35 @@ class Fragment {
   int get hashCode => fragmentId.hashCode;
 }
 
-/// Types of fragment values.
-enum FragmentValueType {
-  string,
-  number,
-  boolean,
-  date,
-  datetime,
-  currency,
-  percentage,
-  object,
-  array,
-  unknown;
-
-  static FragmentValueType fromString(String value) {
-    return FragmentValueType.values.firstWhere(
-      (e) => e.name == value,
-      orElse: () => FragmentValueType.unknown,
-    );
-  }
-}
-
-/// Extraction methods.
-enum ExtractionMethod {
+/// Extractor types for fragment extraction.
+/// Reference: Design Section 2.2 - ExtractorType: rule | ocr | llm | manual
+enum ExtractorType {
   /// Rule-based extraction.
   rule,
 
-  /// Regex pattern matching.
-  regex,
-
   /// OCR (Optical Character Recognition).
   ocr,
-
-  /// Parser-based extraction.
-  parser,
 
   /// LLM-based extraction.
   llm,
 
   /// User-provided.
-  manual,
+  manual;
 
-  /// Unknown method.
-  unknown;
-
-  static ExtractionMethod fromString(String value) {
-    return ExtractionMethod.values.firstWhere(
+  static ExtractorType fromString(String value) {
+    return ExtractorType.values.firstWhere(
       (e) => e.name == value,
-      orElse: () => ExtractionMethod.unknown,
+      orElse: () => ExtractorType.rule,
     );
   }
 }
 
+/// Backward compatibility alias.
+@Deprecated('Use ExtractorType instead')
+typedef ExtractionMethod = ExtractorType;
+
 /// Fragment status.
+/// Reference: Design Section 2.5 - proposed | confirmed | rejected
 enum FragmentStatus {
   /// Proposed by extraction.
   proposed,
@@ -228,96 +163,12 @@ enum FragmentStatus {
   confirmed,
 
   /// Rejected.
-  rejected,
-
-  /// Superseded by another fragment.
-  superseded;
+  rejected;
 
   static FragmentStatus fromString(String value) {
     return FragmentStatus.values.firstWhere(
       (e) => e.name == value,
       orElse: () => FragmentStatus.proposed,
     );
-  }
-}
-
-/// Position in source content.
-class SourcePosition {
-  /// Start offset (characters or pixels).
-  final int start;
-
-  /// End offset.
-  final int end;
-
-  /// Line number (for text).
-  final int? line;
-
-  /// Column number (for text).
-  final int? column;
-
-  /// Bounding box (for images).
-  final BoundingBox? boundingBox;
-
-  const SourcePosition({
-    required this.start,
-    required this.end,
-    this.line,
-    this.column,
-    this.boundingBox,
-  });
-
-  factory SourcePosition.fromJson(Map<String, dynamic> json) {
-    return SourcePosition(
-      start: json['start'] as int? ?? 0,
-      end: json['end'] as int? ?? 0,
-      line: json['line'] as int?,
-      column: json['column'] as int?,
-      boundingBox: json['boundingBox'] != null
-          ? BoundingBox.fromJson(json['boundingBox'] as Map<String, dynamic>)
-          : null,
-    );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'start': start,
-      'end': end,
-      if (line != null) 'line': line,
-      if (column != null) 'column': column,
-      if (boundingBox != null) 'boundingBox': boundingBox!.toJson(),
-    };
-  }
-}
-
-/// Bounding box for image regions.
-class BoundingBox {
-  final double x;
-  final double y;
-  final double width;
-  final double height;
-
-  const BoundingBox({
-    required this.x,
-    required this.y,
-    required this.width,
-    required this.height,
-  });
-
-  factory BoundingBox.fromJson(Map<String, dynamic> json) {
-    return BoundingBox(
-      x: (json['x'] as num?)?.toDouble() ?? 0,
-      y: (json['y'] as num?)?.toDouble() ?? 0,
-      width: (json['width'] as num?)?.toDouble() ?? 0,
-      height: (json['height'] as num?)?.toDouble() ?? 0,
-    );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'x': x,
-      'y': y,
-      'width': width,
-      'height': height,
-    };
   }
 }

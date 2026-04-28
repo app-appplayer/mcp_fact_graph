@@ -10,6 +10,9 @@ class View {
   /// Unique view identifier.
   final String viewId;
 
+  /// Workspace identifier for multi-tenant isolation.
+  final String workspaceId;
+
   /// View type/name.
   final String viewType;
 
@@ -17,19 +20,27 @@ class View {
   final String title;
 
   /// View period.
+  /// Reference: Design Section 2.9 - Period from mcp_bundle.
   final ViewPeriod period;
 
   /// View scope (e.g., category, project, entity).
-  final String? scope;
+  /// Required per design §2.9.
+  final String scope;
 
-  /// Computed data.
-  final Map<String, dynamic> data;
+  /// Grouping dimensions.
+  /// Reference: Design Section 2.9 - dimensions.
+  final Map<String, dynamic> dimensions;
 
-  /// Source event IDs used in computation.
-  final List<String> sourceEventIds;
+  /// Calculated metrics.
+  /// Reference: Design Section 2.9 - metrics.
+  final Map<String, dynamic> metrics;
 
-  /// Policy version used for computation.
-  final String policyVersion;
+  /// Source event/fact IDs used in computation.
+  /// Reference: Design Section 2.9 - sourceRefs.
+  final List<String> sourceRefs;
+
+  /// Policy version used for computation (optional per design §2.9).
+  final String? policyVersion;
 
   /// When this view was computed.
   final DateTime computedAt;
@@ -48,13 +59,15 @@ class View {
 
   const View({
     required this.viewId,
+    required this.workspaceId,
     required this.viewType,
     required this.title,
     required this.period,
-    this.scope,
-    this.data = const {},
-    this.sourceEventIds = const [],
-    required this.policyVersion,
+    required this.scope,
+    this.dimensions = const {},
+    this.metrics = const {},
+    this.sourceRefs = const [],
+    this.policyVersion,
     required this.computedAt,
     required this.asOf,
     this.status = ViewStatus.current,
@@ -65,16 +78,18 @@ class View {
   factory View.fromJson(Map<String, dynamic> json) {
     return View(
       viewId: json['viewId'] as String? ?? '',
+      workspaceId: json['workspaceId'] as String? ?? 'default',
       viewType: json['viewType'] as String? ?? '',
       title: json['title'] as String? ?? '',
       period: ViewPeriod.fromJson(json['period'] as Map<String, dynamic>? ?? {}),
-      scope: json['scope'] as String?,
-      data: json['data'] as Map<String, dynamic>? ?? {},
-      sourceEventIds: (json['sourceEventIds'] as List<dynamic>?)
+      scope: json['scope'] as String? ?? '',
+      dimensions: json['dimensions'] as Map<String, dynamic>? ?? {},
+      metrics: json['metrics'] as Map<String, dynamic>? ?? {},
+      sourceRefs: (json['sourceRefs'] as List<dynamic>?)
               ?.map((e) => e as String)
               .toList() ??
           [],
-      policyVersion: json['policyVersion'] as String? ?? '',
+      policyVersion: json['policyVersion'] as String?,
       computedAt: json['computedAt'] != null
           ? DateTime.parse(json['computedAt'] as String)
           : DateTime.now(),
@@ -93,13 +108,15 @@ class View {
   Map<String, dynamic> toJson() {
     return {
       'viewId': viewId,
+      'workspaceId': workspaceId,
       'viewType': viewType,
       'title': title,
       'period': period.toJson(),
-      if (scope != null) 'scope': scope,
-      if (data.isNotEmpty) 'data': data,
-      if (sourceEventIds.isNotEmpty) 'sourceEventIds': sourceEventIds,
-      'policyVersion': policyVersion,
+      'scope': scope,
+      if (dimensions.isNotEmpty) 'dimensions': dimensions,
+      if (metrics.isNotEmpty) 'metrics': metrics,
+      if (sourceRefs.isNotEmpty) 'sourceRefs': sourceRefs,
+      if (policyVersion != null) 'policyVersion': policyVersion,
       'computedAt': computedAt.toIso8601String(),
       'asOf': asOf.toIso8601String(),
       'status': status.name,
@@ -110,12 +127,14 @@ class View {
 
   View copyWith({
     String? viewId,
+    String? workspaceId,
     String? viewType,
     String? title,
     ViewPeriod? period,
     String? scope,
-    Map<String, dynamic>? data,
-    List<String>? sourceEventIds,
+    Map<String, dynamic>? dimensions,
+    Map<String, dynamic>? metrics,
+    List<String>? sourceRefs,
     String? policyVersion,
     DateTime? computedAt,
     DateTime? asOf,
@@ -125,12 +144,14 @@ class View {
   }) {
     return View(
       viewId: viewId ?? this.viewId,
+      workspaceId: workspaceId ?? this.workspaceId,
       viewType: viewType ?? this.viewType,
       title: title ?? this.title,
       period: period ?? this.period,
       scope: scope ?? this.scope,
-      data: data ?? this.data,
-      sourceEventIds: sourceEventIds ?? this.sourceEventIds,
+      dimensions: dimensions ?? this.dimensions,
+      metrics: metrics ?? this.metrics,
+      sourceRefs: sourceRefs ?? this.sourceRefs,
       policyVersion: policyVersion ?? this.policyVersion,
       computedAt: computedAt ?? this.computedAt,
       asOf: asOf ?? this.asOf,
@@ -173,7 +194,7 @@ enum ViewStatus {
   }
 }
 
-/// View period.
+/// View period (simplified, aligned with Period from mcp_bundle).
 class ViewPeriod {
   /// Period start.
   final DateTime start;
@@ -181,13 +202,9 @@ class ViewPeriod {
   /// Period end.
   final DateTime end;
 
-  /// Period type.
-  final PeriodType type;
-
   const ViewPeriod({
     required this.start,
     required this.end,
-    this.type = PeriodType.custom,
   });
 
   factory ViewPeriod.fromJson(Map<String, dynamic> json) {
@@ -198,7 +215,6 @@ class ViewPeriod {
       end: json['end'] != null
           ? DateTime.parse(json['end'] as String)
           : DateTime.now(),
-      type: PeriodType.fromString(json['type'] as String? ?? 'custom'),
     );
   }
 
@@ -206,29 +222,11 @@ class ViewPeriod {
     return {
       'start': start.toIso8601String(),
       'end': end.toIso8601String(),
-      'type': type.name,
     };
   }
 
   /// Duration of the period.
   Duration get duration => end.difference(start);
-}
-
-/// Period types.
-enum PeriodType {
-  daily,
-  weekly,
-  monthly,
-  quarterly,
-  yearly,
-  custom;
-
-  static PeriodType fromString(String value) {
-    return PeriodType.values.firstWhere(
-      (e) => e.name == value,
-      orElse: () => PeriodType.custom,
-    );
-  }
 }
 
 /// Computation metadata.

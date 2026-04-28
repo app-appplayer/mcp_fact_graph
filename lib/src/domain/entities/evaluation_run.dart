@@ -1,175 +1,161 @@
 /// EvaluationRun entity for L3 SkillOps Layer.
 ///
-/// Represents a single evaluation execution using a rubric.
+/// Represents a deterministic evaluation execution record.
+/// Reference: 03-data-model-specification.md Section 2.16.5
 library;
 
-/// EvaluationRun represents a completed evaluation.
+/// EvaluationRun represents a deterministic evaluation execution.
 ///
-/// Records the results of evaluating skill output against a rubric.
+/// Records the results of evaluating against a rubric with full
+/// reproducibility (same inputs + versions = same outputs).
 class EvaluationRun {
   /// Unique evaluation run identifier.
-  final String runId;
+  final String evaluationId;
+
+  /// Workspace identifier for multi-tenant isolation.
+  final String workspaceId;
 
   /// Rubric ID used for evaluation.
   final String rubricId;
 
-  /// Skill ID being evaluated.
-  final String skillId;
+  /// Rubric version used for evaluation.
+  /// Reference: Design Section 2.16.5 - reproducibility.
+  final String rubricVersion;
 
-  /// Skill execution ID.
-  final String executionId;
+  /// Policy version used for evaluation context.
+  /// Reference: Design Section 2.16.5 - reproducibility.
+  final String policyVersion;
 
-  /// Input data for the skill.
-  final Map<String, dynamic> input;
+  /// Point-in-time snapshot for reproducibility.
+  /// Reference: Design Section 2.16.5 - time-travel queries.
+  final DateTime asOf;
 
-  /// Output data from the skill.
-  final Map<String, dynamic> output;
+  /// Time period this evaluation covers.
+  /// Reference: Design Section 2.16.5 - periodic evaluations.
+  final Period? period;
 
-  /// Dimension scores.
-  final List<DimensionScore> dimensionScores;
+  /// Complete input snapshot.
+  /// Reference: Design Section 2.16.5 - EvaluationInput.
+  final EvaluationInput input;
 
-  /// Overall score (0.0-1.0).
-  final double overallScore;
+  /// Complete output snapshot.
+  /// Reference: Design Section 2.16.5 - EvaluationOutput.
+  final EvaluationOutput output;
 
-  /// Whether evaluation passed.
-  final bool passed;
+  /// Idempotency key for deduplication.
+  /// Reference: Design Section 2.16.5 - idempotent operations.
+  final String idempotencyKey;
 
   /// Evaluation status.
   final EvaluationStatus status;
 
-  /// Evaluator (human ID or 'automated').
-  final String evaluator;
-
-  /// When evaluation started.
-  final DateTime startedAt;
+  /// When this evaluation was created.
+  final DateTime createdAt;
 
   /// When evaluation completed.
   final DateTime? completedAt;
-
-  /// Duration in milliseconds.
-  final int? durationMs;
-
-  /// Feedback/comments.
-  final String? feedback;
-
-  /// Issues found during evaluation.
-  final List<EvaluationIssue> issues;
 
   /// Additional metadata.
   final Map<String, dynamic> metadata;
 
   const EvaluationRun({
-    required this.runId,
+    required this.evaluationId,
+    required this.workspaceId,
     required this.rubricId,
-    required this.skillId,
-    required this.executionId,
-    this.input = const {},
-    this.output = const {},
-    this.dimensionScores = const [],
-    this.overallScore = 0.0,
-    this.passed = false,
-    this.status = EvaluationStatus.pending,
-    required this.evaluator,
-    required this.startedAt,
+    required this.rubricVersion,
+    required this.policyVersion,
+    required this.asOf,
+    this.period,
+    this.input = const EvaluationInput(targetType: ''),
+    this.output = const EvaluationOutput(),
+    this.idempotencyKey = '',
+    this.status = EvaluationStatus.running,
+    required this.createdAt,
     this.completedAt,
-    this.durationMs,
-    this.feedback,
-    this.issues = const [],
     this.metadata = const {},
   });
 
   factory EvaluationRun.fromJson(Map<String, dynamic> json) {
     return EvaluationRun(
-      runId: json['runId'] as String? ?? '',
+      evaluationId: json['evaluationId'] as String? ?? '',
+      workspaceId: json['workspaceId'] as String? ?? 'default',
       rubricId: json['rubricId'] as String? ?? '',
-      skillId: json['skillId'] as String? ?? '',
-      executionId: json['executionId'] as String? ?? '',
-      input: json['input'] as Map<String, dynamic>? ?? {},
-      output: json['output'] as Map<String, dynamic>? ?? {},
-      dimensionScores: (json['dimensionScores'] as List<dynamic>?)
-              ?.map((e) => DimensionScore.fromJson(e as Map<String, dynamic>))
-              .toList() ??
-          [],
-      overallScore: (json['overallScore'] as num?)?.toDouble() ?? 0.0,
-      passed: json['passed'] as bool? ?? false,
+      rubricVersion: json['rubricVersion'] as String? ?? '1.0.0',
+      policyVersion: json['policyVersion'] as String? ?? '1.0.0',
+      asOf: json['asOf'] != null
+          ? DateTime.parse(json['asOf'] as String)
+          : DateTime.now(),
+      period: json['period'] != null
+          ? Period.fromJson(json['period'] as Map<String, dynamic>)
+          : null,
+      input: json['input'] != null
+          ? EvaluationInput.fromJson(json['input'] as Map<String, dynamic>)
+          : const EvaluationInput(targetType: ''),
+      output: json['output'] != null
+          ? EvaluationOutput.fromJson(json['output'] as Map<String, dynamic>)
+          : const EvaluationOutput(),
+      idempotencyKey: json['idempotencyKey'] as String? ?? '',
       status: EvaluationStatus.fromString(
-          json['status'] as String? ?? 'pending'),
-      evaluator: json['evaluator'] as String? ?? 'unknown',
-      startedAt: json['startedAt'] != null
-          ? DateTime.parse(json['startedAt'] as String)
+          json['status'] as String? ?? 'running'),
+      createdAt: json['createdAt'] != null
+          ? DateTime.parse(json['createdAt'] as String)
           : DateTime.now(),
       completedAt: json['completedAt'] != null
           ? DateTime.parse(json['completedAt'] as String)
           : null,
-      durationMs: json['durationMs'] as int?,
-      feedback: json['feedback'] as String?,
-      issues: (json['issues'] as List<dynamic>?)
-              ?.map((e) => EvaluationIssue.fromJson(e as Map<String, dynamic>))
-              .toList() ??
-          [],
       metadata: json['metadata'] as Map<String, dynamic>? ?? {},
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
-      'runId': runId,
+      'evaluationId': evaluationId,
+      'workspaceId': workspaceId,
       'rubricId': rubricId,
-      'skillId': skillId,
-      'executionId': executionId,
-      if (input.isNotEmpty) 'input': input,
-      if (output.isNotEmpty) 'output': output,
-      if (dimensionScores.isNotEmpty)
-        'dimensionScores': dimensionScores.map((d) => d.toJson()).toList(),
-      'overallScore': overallScore,
-      'passed': passed,
+      'rubricVersion': rubricVersion,
+      'policyVersion': policyVersion,
+      'asOf': asOf.toIso8601String(),
+      if (period != null) 'period': period!.toJson(),
+      'input': input.toJson(),
+      'output': output.toJson(),
+      if (idempotencyKey.isNotEmpty) 'idempotencyKey': idempotencyKey,
       'status': status.name,
-      'evaluator': evaluator,
-      'startedAt': startedAt.toIso8601String(),
+      'createdAt': createdAt.toIso8601String(),
       if (completedAt != null) 'completedAt': completedAt!.toIso8601String(),
-      if (durationMs != null) 'durationMs': durationMs,
-      if (feedback != null) 'feedback': feedback,
-      if (issues.isNotEmpty) 'issues': issues.map((i) => i.toJson()).toList(),
       if (metadata.isNotEmpty) 'metadata': metadata,
     };
   }
 
   EvaluationRun copyWith({
-    String? runId,
+    String? evaluationId,
+    String? workspaceId,
     String? rubricId,
-    String? skillId,
-    String? executionId,
-    Map<String, dynamic>? input,
-    Map<String, dynamic>? output,
-    List<DimensionScore>? dimensionScores,
-    double? overallScore,
-    bool? passed,
+    String? rubricVersion,
+    String? policyVersion,
+    DateTime? asOf,
+    Period? period,
+    EvaluationInput? input,
+    EvaluationOutput? output,
+    String? idempotencyKey,
     EvaluationStatus? status,
-    String? evaluator,
-    DateTime? startedAt,
+    DateTime? createdAt,
     DateTime? completedAt,
-    int? durationMs,
-    String? feedback,
-    List<EvaluationIssue>? issues,
     Map<String, dynamic>? metadata,
   }) {
     return EvaluationRun(
-      runId: runId ?? this.runId,
+      evaluationId: evaluationId ?? this.evaluationId,
+      workspaceId: workspaceId ?? this.workspaceId,
       rubricId: rubricId ?? this.rubricId,
-      skillId: skillId ?? this.skillId,
-      executionId: executionId ?? this.executionId,
+      rubricVersion: rubricVersion ?? this.rubricVersion,
+      policyVersion: policyVersion ?? this.policyVersion,
+      asOf: asOf ?? this.asOf,
+      period: period ?? this.period,
       input: input ?? this.input,
       output: output ?? this.output,
-      dimensionScores: dimensionScores ?? this.dimensionScores,
-      overallScore: overallScore ?? this.overallScore,
-      passed: passed ?? this.passed,
+      idempotencyKey: idempotencyKey ?? this.idempotencyKey,
       status: status ?? this.status,
-      evaluator: evaluator ?? this.evaluator,
-      startedAt: startedAt ?? this.startedAt,
+      createdAt: createdAt ?? this.createdAt,
       completedAt: completedAt ?? this.completedAt,
-      durationMs: durationMs ?? this.durationMs,
-      feedback: feedback ?? this.feedback,
-      issues: issues ?? this.issues,
       metadata: metadata ?? this.metadata,
     );
   }
@@ -177,210 +163,266 @@ class EvaluationRun {
   /// Check if evaluation is complete.
   bool get isComplete => status == EvaluationStatus.completed;
 
-  /// Check if evaluation has critical issues.
-  bool get hasCriticalIssues =>
-      issues.any((i) => i.severity == IssueSeverity.critical);
-
   @override
   String toString() =>
-      'EvaluationRun($runId, score: $overallScore, passed: $passed)';
+      'EvaluationRun($evaluationId, status: $status)';
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is EvaluationRun && runId == other.runId;
+      other is EvaluationRun && evaluationId == other.evaluationId;
 
   @override
-  int get hashCode => runId.hashCode;
+  int get hashCode => evaluationId.hashCode;
 }
 
 /// Evaluation status.
+/// Reference: Design Section 2.16.5 - running | completed | failed
 enum EvaluationStatus {
-  /// Pending evaluation.
-  pending,
-
-  /// In progress.
-  inProgress,
+  /// Running.
+  running,
 
   /// Completed.
   completed,
 
   /// Failed (error during evaluation).
-  failed,
-
-  /// Cancelled.
-  cancelled;
+  failed;
 
   static EvaluationStatus fromString(String value) {
     return EvaluationStatus.values.firstWhere(
       (e) => e.name == value,
-      orElse: () => EvaluationStatus.pending,
+      orElse: () => EvaluationStatus.running,
     );
   }
 }
 
-/// Score for a single dimension.
-class DimensionScore {
-  /// Dimension ID.
-  final String dimensionId;
+/// Simple period for evaluation time range.
+/// Reference: Design Section 2.16.5 - Period.
+class Period {
+  /// Period start time.
+  final DateTime start;
 
-  /// Dimension name.
-  final String dimensionName;
+  /// Period end time.
+  final DateTime end;
 
-  /// Score (0.0-1.0).
-  final double score;
+  const Period({
+    required this.start,
+    required this.end,
+  });
 
-  /// Weight applied.
-  final double weight;
+  factory Period.fromJson(Map<String, dynamic> json) {
+    return Period(
+      start: json['start'] != null
+          ? DateTime.parse(json['start'] as String)
+          : DateTime.now(),
+      end: json['end'] != null
+          ? DateTime.parse(json['end'] as String)
+          : DateTime.now(),
+    );
+  }
 
-  /// Weighted score.
-  final double weightedScore;
+  Map<String, dynamic> toJson() {
+    return {
+      'start': start.toIso8601String(),
+      'end': end.toIso8601String(),
+    };
+  }
 
-  /// Justification for the score.
-  final String? justification;
+  /// Duration of the period.
+  Duration get duration => end.difference(start);
+}
 
-  /// Evidence supporting the score.
-  final List<String> evidence;
+/// Typed evaluation input snapshot.
+/// Reference: Design Section 2.16.5 - EvaluationInput.
+class EvaluationInput {
+  /// Target type (fact, candidate, entity, period, skill_run).
+  final String targetType;
 
-  const DimensionScore({
-    required this.dimensionId,
-    required this.dimensionName,
-    required this.score,
-    this.weight = 1.0,
-    double? weightedScore,
-    this.justification,
-    this.evidence = const [],
-  }) : weightedScore = weightedScore ?? score * weight;
+  /// Specific target ID.
+  final String? targetId;
 
-  factory DimensionScore.fromJson(Map<String, dynamic> json) {
-    final score = (json['score'] as num?)?.toDouble() ?? 0.0;
-    final weight = (json['weight'] as num?)?.toDouble() ?? 1.0;
-    return DimensionScore(
-      dimensionId: json['dimensionId'] as String? ?? '',
-      dimensionName: json['dimensionName'] as String? ?? '',
-      score: score,
-      weight: weight,
-      weightedScore: (json['weightedScore'] as num?)?.toDouble() ?? score * weight,
-      justification: json['justification'] as String?,
-      evidence: (json['evidence'] as List<dynamic>?)
+  /// Fact IDs included.
+  final List<String> factIds;
+
+  /// View IDs included.
+  final List<String> viewIds;
+
+  /// Additional parameters.
+  final Map<String, dynamic> params;
+
+  const EvaluationInput({
+    required this.targetType,
+    this.targetId,
+    this.factIds = const [],
+    this.viewIds = const [],
+    this.params = const {},
+  });
+
+  factory EvaluationInput.fromJson(Map<String, dynamic> json) {
+    return EvaluationInput(
+      targetType: json['targetType'] as String? ?? '',
+      targetId: json['targetId'] as String?,
+      factIds: (json['factIds'] as List<dynamic>?)
               ?.map((e) => e as String)
               .toList() ??
           [],
+      viewIds: (json['viewIds'] as List<dynamic>?)
+              ?.map((e) => e as String)
+              .toList() ??
+          [],
+      params: json['params'] as Map<String, dynamic>? ?? {},
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
-      'dimensionId': dimensionId,
-      'dimensionName': dimensionName,
-      'score': score,
-      'weight': weight,
-      'weightedScore': weightedScore,
-      if (justification != null) 'justification': justification,
-      if (evidence.isNotEmpty) 'evidence': evidence,
+      'targetType': targetType,
+      if (targetId != null) 'targetId': targetId,
+      if (factIds.isNotEmpty) 'factIds': factIds,
+      if (viewIds.isNotEmpty) 'viewIds': viewIds,
+      if (params.isNotEmpty) 'params': params,
     };
   }
 }
 
-/// Issue found during evaluation.
-class EvaluationIssue {
-  /// Issue type.
-  final EvalIssueType issueType;
+/// Typed evaluation output snapshot.
+/// Reference: Design Section 2.16.5 - EvaluationOutput.
+class EvaluationOutput {
+  /// Per-dimension scores.
+  final Map<String, double> dimensionScores;
 
-  /// Issue severity.
-  final IssueSeverity severity;
+  /// Weighted total score.
+  final double totalScore;
 
-  /// Related dimension ID.
-  final String? dimensionId;
+  /// Grade label (A, B, C, etc.).
+  final String grade;
 
-  /// Issue description.
-  final String description;
+  /// Detailed findings.
+  final List<Finding> findings;
 
-  /// Suggested fix.
-  final String? suggestion;
+  /// Supporting evidence references.
+  final List<String> evidenceRefs;
 
-  /// Location in output (path or line).
-  final String? location;
+  /// Additional metrics.
+  final Map<String, dynamic> metrics;
 
-  const EvaluationIssue({
-    required this.issueType,
-    required this.severity,
-    this.dimensionId,
-    required this.description,
-    this.suggestion,
-    this.location,
+  const EvaluationOutput({
+    this.dimensionScores = const {},
+    this.totalScore = 0.0,
+    this.grade = '',
+    this.findings = const [],
+    this.evidenceRefs = const [],
+    this.metrics = const {},
   });
 
-  factory EvaluationIssue.fromJson(Map<String, dynamic> json) {
-    return EvaluationIssue(
-      issueType: EvalIssueType.fromString(json['issueType'] as String? ?? 'other'),
-      severity:
-          IssueSeverity.fromString(json['severity'] as String? ?? 'minor'),
-      dimensionId: json['dimensionId'] as String?,
-      description: json['description'] as String? ?? '',
-      suggestion: json['suggestion'] as String?,
-      location: json['location'] as String?,
+  factory EvaluationOutput.fromJson(Map<String, dynamic> json) {
+    return EvaluationOutput(
+      dimensionScores: (json['dimensionScores'] as Map<String, dynamic>?)
+              ?.map((k, v) => MapEntry(k, (v as num).toDouble())) ??
+          {},
+      totalScore: (json['totalScore'] as num?)?.toDouble() ?? 0.0,
+      grade: json['grade'] as String? ?? '',
+      findings: (json['findings'] as List<dynamic>?)
+              ?.map((e) => Finding.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          [],
+      evidenceRefs: (json['evidenceRefs'] as List<dynamic>?)
+              ?.map((e) => e as String)
+              .toList() ??
+          [],
+      metrics: json['metrics'] as Map<String, dynamic>? ?? {},
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
-      'issueType': issueType.name,
-      'severity': severity.name,
-      if (dimensionId != null) 'dimensionId': dimensionId,
-      'description': description,
-      if (suggestion != null) 'suggestion': suggestion,
-      if (location != null) 'location': location,
+      if (dimensionScores.isNotEmpty) 'dimensionScores': dimensionScores,
+      'totalScore': totalScore,
+      'grade': grade,
+      if (findings.isNotEmpty)
+        'findings': findings.map((f) => f.toJson()).toList(),
+      if (evidenceRefs.isNotEmpty) 'evidenceRefs': evidenceRefs,
+      if (metrics.isNotEmpty) 'metrics': metrics,
     };
   }
 }
 
-/// Evaluation issue types.
-enum EvalIssueType {
-  /// Accuracy issue.
-  accuracy,
+/// Detailed finding from evaluation.
+/// Reference: Design Section 2.16.5 - Finding.
+class Finding {
+  /// Unique identifier.
+  final String findingId;
 
-  /// Completeness issue.
-  completeness,
+  /// Finding type.
+  final FindingType findingType;
 
-  /// Format issue.
-  format,
+  /// Related dimension ID.
+  final String dimensionId;
 
-  /// Performance issue.
-  performance,
+  /// Finding description.
+  final String description;
 
-  /// Security issue.
-  security,
+  /// Evidence references supporting this finding.
+  final List<String> supportingRefs;
 
-  /// Other issue.
-  other;
+  /// Impact on score (optional).
+  final double? impact;
 
-  static EvalIssueType fromString(String value) {
-    return EvalIssueType.values.firstWhere(
-      (e) => e.name == value,
-      orElse: () => EvalIssueType.other,
+  const Finding({
+    required this.findingId,
+    required this.findingType,
+    required this.dimensionId,
+    required this.description,
+    this.supportingRefs = const [],
+    this.impact,
+  });
+
+  factory Finding.fromJson(Map<String, dynamic> json) {
+    return Finding(
+      findingId: json['findingId'] as String? ?? '',
+      findingType:
+          FindingType.fromString(json['findingType'] as String? ?? 'observation'),
+      dimensionId: json['dimensionId'] as String? ?? '',
+      description: json['description'] as String? ?? '',
+      supportingRefs: (json['supportingRefs'] as List<dynamic>?)
+              ?.map((e) => e as String)
+              .toList() ??
+          [],
+      impact: (json['impact'] as num?)?.toDouble(),
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'findingId': findingId,
+      'findingType': findingType.name,
+      'dimensionId': dimensionId,
+      'description': description,
+      if (supportingRefs.isNotEmpty) 'supportingRefs': supportingRefs,
+      if (impact != null) 'impact': impact,
+    };
   }
 }
 
-/// Issue severity levels.
-enum IssueSeverity {
-  /// Critical - blocks acceptance.
-  critical,
+/// Finding types.
+/// Reference: Design Section 2.16.5.
+enum FindingType {
+  /// Positive aspect.
+  strength,
 
-  /// Major - significant impact.
-  major,
+  /// Area needing improvement.
+  weakness,
 
-  /// Minor - small impact.
-  minor,
+  /// Neutral observation.
+  observation,
 
-  /// Info - informational only.
-  info;
+  /// Suggested action.
+  recommendation;
 
-  static IssueSeverity fromString(String value) {
-    return IssueSeverity.values.firstWhere(
+  static FindingType fromString(String value) {
+    return FindingType.values.firstWhere(
       (e) => e.name == value,
-      orElse: () => IssueSeverity.minor,
+      orElse: () => FindingType.observation,
     );
   }
 }

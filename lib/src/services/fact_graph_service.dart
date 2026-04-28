@@ -1,11 +1,11 @@
 /// FactGraph Service - L1 Layer operations.
 ///
-/// Handles candidates, entities, events, and views.
+/// Handles candidates, entities, facts, and views.
 library;
 
 import '../domain/entities/candidate.dart';
 import '../domain/entities/entity.dart';
-import '../domain/entities/event.dart';
+import '../domain/entities/fact.dart';
 import '../domain/entities/view.dart';
 import '../domain/entities/fragment.dart';
 import '../ports/storage_port.dart';
@@ -19,8 +19,8 @@ class FactGraphService {
   /// Entity storage port.
   final EntityStoragePort _entityStorage;
 
-  /// Event storage port.
-  final EventStoragePort _eventStorage;
+  /// Fact storage port.
+  final FactStoragePort _factStorage;
 
   /// View storage port.
   final ViewStoragePort _viewStorage;
@@ -31,12 +31,12 @@ class FactGraphService {
   FactGraphService({
     required CandidateStoragePort candidateStorage,
     required EntityStoragePort entityStorage,
-    required EventStoragePort eventStorage,
+    required FactStoragePort factStorage,
     required ViewStoragePort viewStorage,
     EntityResolutionPort? entityResolver,
   })  : _candidateStorage = candidateStorage,
         _entityStorage = entityStorage,
-        _eventStorage = eventStorage,
+        _factStorage = factStorage,
         _viewStorage = viewStorage,
         _entityResolver = entityResolver;
 
@@ -46,6 +46,7 @@ class FactGraphService {
 
   /// Create candidate from fragments.
   Future<Candidate> createCandidate({
+    required String workspaceId,
     required String objectType,
     required List<Fragment> fragments,
     Map<String, dynamic>? additionalData,
@@ -56,15 +57,19 @@ class FactGraphService {
     // Build fields map from fragments
     final fields = <String, CandidateField>{};
     for (final fragment in fragments) {
-      fields[fragment.field] = CandidateField(
-        value: fragment.normalizedValue ?? fragment.value,
-        confidence: fragment.confidence,
-        sourceFragmentId: fragment.fragmentId,
-      );
+      // Each fragment has a fields map; merge them
+      for (final entry in fragment.fields.entries) {
+        fields[entry.key] = CandidateField(
+          value: entry.value,
+          confidence: fragment.confidence,
+          sourceFragmentId: fragment.fragmentId,
+        );
+      }
     }
 
     final candidate = Candidate(
       candidateId: candidateId,
+      workspaceId: workspaceId,
       objectType: objectType,
       status: CandidateStatus.open,
       fragmentIds: fragments.map((f) => f.fragmentId).toList(),
@@ -89,7 +94,7 @@ class FactGraphService {
     return _candidateStorage.queryCandidates(query);
   }
 
-  /// Confirm a candidate and create event/entity.
+  /// Confirm a candidate and create fact/entity.
   Future<ConfirmationResult> confirmCandidate(
     String candidateId, {
     String? policyVersion,
@@ -100,11 +105,11 @@ class FactGraphService {
     }
 
     final now = DateTime.now();
-    String? eventId;
+    String? factId;
     String? entityId;
 
-    // Create event from candidate
-    eventId = await _createEventFromCandidate(candidate, policyVersion);
+    // Create fact from candidate
+    factId = await _createFactFromCandidate(candidate, policyVersion);
 
     // Resolve entities if resolver available
     if (_entityResolver != null) {
@@ -116,13 +121,13 @@ class FactGraphService {
       status: CandidateStatus.confirmed,
       confirmedAt: now,
       updatedAt: now,
-      resultingIds: [eventId, if (entityId != null) entityId],
+      resultingIds: [factId, if (entityId != null) entityId],
     );
     await _candidateStorage.saveCandidate(confirmedCandidate);
 
     return ConfirmationResult(
       candidateId: candidateId,
-      eventId: eventId,
+      factId: factId,
       entityId: entityId,
     );
   }
@@ -166,22 +171,22 @@ class FactGraphService {
   }
 
   // =========================================================================
-  // Event Operations
+  // Fact Operations
   // =========================================================================
 
-  /// Get event by ID.
-  Future<Event?> getEvent(String eventId) {
-    return _eventStorage.getEvent(eventId);
+  /// Get fact by ID.
+  Future<Fact?> getFact(String factId) {
+    return _factStorage.getFact(factId);
   }
 
-  /// Query events.
-  Future<List<Event>> queryEvents(EventQuery query) {
-    return _eventStorage.queryEvents(query);
+  /// Query facts.
+  Future<List<Fact>> queryFacts(FactQuery query) {
+    return _factStorage.queryFacts(query);
   }
 
-  /// Get events for entity.
-  Future<List<Event>> getEventsForEntity(String entityId) {
-    return _eventStorage.getEventsForEntity(entityId);
+  /// Get facts for entity.
+  Future<List<Fact>> getFactsForEntity(String entityId) {
+    return _factStorage.getFactsForEntity(entityId);
   }
 
   // =========================================================================
@@ -190,39 +195,41 @@ class FactGraphService {
 
   /// Compute a view.
   Future<View> computeView({
+    required String workspaceId,
     required String viewType,
     required String title,
     required ViewPeriod period,
-    String? scope,
+    required String scope,
     required String policyVersion,
   }) async {
     final viewId = _generateId('view');
     final now = DateTime.now();
 
-    // Query events for the period
-    final events = await _eventStorage.queryEvents(EventQuery(
+    // Query facts for the period
+    final facts = await _factStorage.queryFacts(FactQuery(
       fromDate: period.start,
       toDate: period.end,
     ));
 
     // Compute view data based on type
-    final data = await _computeViewData(viewType, events, scope);
+    final data = await _computeViewData(viewType, facts, scope);
 
     final view = View(
       viewId: viewId,
+      workspaceId: workspaceId,
       viewType: viewType,
       title: title,
       period: period,
       scope: scope,
-      data: data,
-      sourceEventIds: events.map((e) => e.eventId).toList(),
+      metrics: data,
+      sourceRefs: facts.map((f) => f.factId).toList(),
       policyVersion: policyVersion,
       computedAt: now,
       asOf: now,
       status: ViewStatus.current,
       computationMeta: ComputationMeta(
         durationMs: 0,
-        eventsProcessed: events.length,
+        eventsProcessed: facts.length,
         algorithm: 'basic',
       ),
     );
@@ -245,34 +252,33 @@ class FactGraphService {
   // Private Methods
   // =========================================================================
 
-  Future<String> _createEventFromCandidate(
+  Future<String> _createFactFromCandidate(
     Candidate candidate,
     String? policyVersion,
   ) async {
-    final eventId = _generateId('evt');
+    final factId = _generateId('fact');
     final now = DateTime.now();
 
     // Build summary from fields
     final summary = _buildSummaryFromFields(candidate.objectType, candidate.fields);
 
-    final event = Event(
-      eventId: eventId,
-      eventType: candidate.objectType,
+    final fact = Fact(
+      factId: factId,
+      workspaceId: candidate.workspaceId,
+      factType: candidate.objectType,
       summary: summary,
-      data: _fieldsToData(candidate.fields),
+      payload: _fieldsToData(candidate.fields),
       occurredAt: now,
-      status: EventStatus.active,
+      status: FactStatus.confirmed,
       candidateId: candidate.candidateId,
-      evidenceIds: candidate.evidenceIds,
-      entityIds: const [],
-      edges: const [],
+      evidenceRefs: candidate.evidenceIds,
+      entityRefs: const [],
       createdAt: now,
-      updatedAt: now,
       policyVersion: policyVersion,
     );
 
-    await _eventStorage.saveEvent(event);
-    return eventId;
+    await _factStorage.saveFact(fact);
+    return factId;
   }
 
   Future<String?> _resolveEntity(Candidate candidate) async {
@@ -309,8 +315,9 @@ class FactGraphService {
 
     final entity = Entity(
       entityId: entityId,
-      entityType: candidate.objectType,
-      name: name,
+      workspaceId: candidate.workspaceId,
+      type: candidate.objectType,
+      canonicalName: name,
       sourceCandidateIds: [candidate.candidateId],
       createdAt: now,
       updatedAt: now,
@@ -337,13 +344,13 @@ class FactGraphService {
 
   Future<Map<String, dynamic>> _computeViewData(
     String viewType,
-    List<Event> events,
+    List<Fact> facts,
     String? scope,
   ) async {
     // Basic view computation - override for specific view types
     return {
-      'eventCount': events.length,
-      'eventTypes': events.map((e) => e.eventType).toSet().toList(),
+      'factCount': facts.length,
+      'factTypes': facts.map((f) => f.factType).toSet().toList(),
     };
   }
 
@@ -364,15 +371,15 @@ class ConfirmationResult {
   /// Candidate ID.
   final String candidateId;
 
-  /// Created event ID.
-  final String? eventId;
+  /// Created fact ID.
+  final String? factId;
 
   /// Resolved/created entity ID.
   final String? entityId;
 
   const ConfirmationResult({
     required this.candidateId,
-    this.eventId,
+    this.factId,
     this.entityId,
   });
 }

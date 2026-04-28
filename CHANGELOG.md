@@ -1,3 +1,29 @@
+## [0.2.0] - 2026-04-28 - Standard Ports & Domain Expansion
+
+### Added
+- Standard port adapters under `src/adapters/` implementing `mcp_bundle` Contract Layer (capability-named ports).
+- `UnifiedStoragePort` consolidating per-domain storage.
+- L1 FactGraph domain entities — artifact, automation, classification, fact_cluster, fact_policy, relation, run, skill_run.
+- LLM-call-reduction domain entities — extraction rules / validators, classifier memory, disambiguation decisions, LLM call log, idempotency records.
+- Claim signal entity bridging L2 ContextOps and L3 SkillOps.
+- Response validation entity.
+
+### Changed
+- Domain entities reorganized into the 4-layer (L0 Evidence, L1 FactGraph, L2 ContextOps, L3 SkillOps) architecture.
+- New dependency: `mcp_bundle ^0.3.0`.
+
+### Removed
+- Legacy per-domain `EvidencePort` and `event` entity — replaced by Contract Layer ports and `UnifiedStoragePort`.
+
+---
+
+## [0.1.1] - Dependency Update
+
+### Changed
+- Updated `mcp_bundle` dependency to ^0.2.1 for Contract Layer compatibility
+
+---
+
 ## [0.1.0] - Initial Release
 
 ### Added

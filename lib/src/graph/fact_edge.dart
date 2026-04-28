@@ -67,7 +67,7 @@ class FactEdge {
   factory FactEdge.fromJson(Map<String, dynamic> json) {
     return FactEdge(
       id: json['id'] as String? ?? '',
-      type: EdgeType.fromString(json['type'] as String? ?? 'related'),
+      type: EdgeType.fromString(json['type'] as String? ?? 'relatesTo'),
       sourceId: json['sourceId'] as String? ?? '',
       targetId: json['targetId'] as String? ?? '',
       label: json['label'] as String?,
@@ -133,42 +133,58 @@ class FactEdge {
 }
 
 /// Types of edges in the fact graph.
+/// Reference: 03-data-model-specification.md Section 2.17
 enum EdgeType {
-  /// General relationship.
-  related,
+  // Evidence relationships
 
-  /// Causal relationship.
-  causes,
-
-  /// Part-of relationship.
-  partOf,
-
-  /// Instance-of relationship.
-  instanceOf,
-
-  /// Has property relationship.
-  hasProperty,
-
-  /// Temporal sequence.
-  precedes,
-
-  /// Contradiction.
-  contradicts,
-
-  /// Support/evidence.
+  /// Evidence/Fact supports Claim/Conclusion.
   supports,
 
-  /// Inference.
-  infers,
+  /// Fragment extracted from Evidence.
+  extractedFrom,
 
-  /// Reference.
-  references,
+  // Derivation relationships
 
-  /// Composition.
-  composedOf,
+  /// Summary/View/Report derived from Fact set.
+  derivedFrom,
 
-  /// Dependency.
+  /// Conclusion/View depends on Policy/Rubric/Assumption.
   dependsOn,
+
+  // Update relationships
+
+  /// New version supersedes old version.
+  supersedes,
+
+  /// Conflicting facts/claims.
+  contradicts,
+
+  // Entity relationships
+
+  /// General entity relationship.
+  relatesTo,
+
+  /// Hierarchical relationship (DAG).
+  partOf,
+
+  /// Ownership relationship.
+  ownedBy,
+
+  // Skill relationships
+
+  /// Skill/Rubric applied to Target.
+  appliedTo,
+
+  /// Output produced by Skill/Evaluation.
+  producedBy,
+
+  // Pattern relationships
+
+  /// Pattern observed from Claim (mining input).
+  observedFrom,
+
+  /// Pattern promoted to Skill/Profile.
+  promotedTo,
 
   /// Unknown relationship.
   unknown;
@@ -181,9 +197,8 @@ enum EdgeType {
   }
 
   /// Check if this edge type represents a hierarchical relationship.
-  bool get isHierarchical =>
-      this == partOf || this == instanceOf || this == composedOf;
+  bool get isHierarchical => this == partOf || this == ownedBy;
 
   /// Check if this edge type is inherently bidirectional.
-  bool get isSymmetric => this == related || this == contradicts;
+  bool get isSymmetric => this == relatesTo || this == contradicts;
 }

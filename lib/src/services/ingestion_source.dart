@@ -1,15 +1,32 @@
-/// Evidence Port - Abstract interface for evidence sources.
+/// Ingestion source contracts for [EvidenceService].
 ///
-/// Defines contracts for ingesting evidence from external systems.
+/// Phase 2.1 relocation of the legacy `src/ports/evidence_port.dart`
+/// file. The contents here are **package-internal** contracts used by
+/// `EvidenceService` to pull raw content from external sources
+/// (filesystem, chat bridge, HTTP fetcher, …) and to extract fragments
+/// from that content.
+///
+/// These are *not* capability ports — they do not cross the
+/// `mcp_bundle` contract boundary. Capability-level evidence handling
+/// lives in `mcp_bundle.EvidencePort` and is exposed through the Phase
+/// 2 standard adapter at `src/adapters/standard/evidence_port_adapter.dart`.
+///
+/// The older `EvidencePort` / `FragmentExtractorPort` class names are
+/// preserved for source-adapter maintainers; new code should prefer
+/// the capability port and treat these contracts as internal.
 library;
 
 import '../domain/entities/evidence.dart';
 import '../domain/entities/fragment.dart';
 
 /// Port for evidence ingestion from external sources.
+///
+/// Implemented by source adapters (filesystem, chat, HTTP, …). The
+/// `EvidenceService` invokes `ingest` to pull raw content. Package-
+/// internal in Phase 2.1 (not re-exported by the barrel).
 abstract class EvidencePort {
   /// Ingest raw content from a source.
-  Future<Evidence> ingest(EvidenceInput input);
+  Future<Evidence> ingest(IngestionInput input);
 
   /// Check if source is available.
   Future<bool> isAvailable();
@@ -18,8 +35,15 @@ abstract class EvidencePort {
   SourceCapabilities get capabilities;
 }
 
-/// Input for evidence ingestion.
-class EvidenceInput {
+/// Input for evidence ingestion from external sources.
+///
+/// Note: distinct from `mcp_bundle.EvidenceInput` which carries richer
+/// metadata (`contentHash`, `SourceInfo`). `IngestionInput` is the
+/// simpler internal shape used by [EvidencePort.ingest].
+class IngestionInput {
+  /// Workspace identifier for multi-tenant isolation.
+  final String workspaceId;
+
   /// Raw content to ingest.
   final String content;
 
@@ -35,7 +59,8 @@ class EvidenceInput {
   /// Source metadata.
   final Map<String, dynamic> metadata;
 
-  const EvidenceInput({
+  const IngestionInput({
+    required this.workspaceId,
     required this.content,
     this.contentType = 'text/plain',
     required this.sourceId,
@@ -67,6 +92,9 @@ class SourceCapabilities {
 }
 
 /// Port for fragment extraction.
+///
+/// Implemented by extraction strategies (rule-based, LLM-powered, …).
+/// Package-internal in Phase 2.1.
 abstract class FragmentExtractorPort {
   /// Extract fragments from evidence.
   Future<List<Fragment>> extract(Evidence evidence, ExtractionConfig config);

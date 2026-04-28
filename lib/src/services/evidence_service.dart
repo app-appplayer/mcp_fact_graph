@@ -5,8 +5,8 @@ library;
 
 import '../domain/entities/evidence.dart';
 import '../domain/entities/fragment.dart';
-import '../ports/evidence_port.dart';
 import '../ports/storage_port.dart';
+import 'ingestion_source.dart';
 
 /// Service for L0 Evidence Layer operations.
 class EvidenceService {
@@ -23,20 +23,23 @@ class EvidenceService {
         _extractor = extractor;
 
   /// Ingest new evidence.
-  Future<Evidence> ingestEvidence(EvidenceInput input) async {
+  Future<Evidence> ingestEvidence(IngestionInput input) async {
     final evidenceId = _generateId('ev');
     final contentHash = _computeHash(input.content);
 
+    final now = DateTime.now();
     final evidence = Evidence(
       evidenceId: evidenceId,
+      workspaceId: input.workspaceId,
       sourceType: input.sourceType,
       content: input.content,
       contentHash: contentHash,
-      source: SourceMetadata(
+      source: SourceInfo(
         name: input.sourceId,
         attributes: input.metadata,
       ),
-      ingestedAt: DateTime.now(),
+      createdAt: now,
+      ingestedAt: now,
       status: EvidenceStatus.pending,
       fragmentIds: const [],
       metadata: input.metadata,
@@ -93,9 +96,8 @@ class EvidenceService {
   /// Confirm a fragment.
   Future<Fragment> confirmFragment(
     String evidenceId,
-    String fragmentId, {
-    String? confirmedBy,
-  }) async {
+    String fragmentId,
+  ) async {
     final fragments = await _storage.getFragments(evidenceId);
     final fragment = fragments.firstWhere(
       (f) => f.fragmentId == fragmentId,
@@ -104,8 +106,6 @@ class EvidenceService {
 
     final confirmedFragment = fragment.copyWith(
       status: FragmentStatus.confirmed,
-      confirmedBy: confirmedBy,
-      confirmedAt: DateTime.now(),
     );
 
     await _storage.saveFragments([confirmedFragment]);

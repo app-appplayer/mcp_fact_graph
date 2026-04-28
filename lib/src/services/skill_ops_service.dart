@@ -7,7 +7,7 @@ import '../domain/entities/pattern.dart';
 import '../domain/entities/skill.dart';
 import '../domain/entities/rubric.dart';
 import '../domain/entities/evaluation_run.dart';
-import '../domain/entities/event.dart';
+import '../domain/entities/fact.dart';
 import '../ports/storage_port.dart';
 import '../ports/llm_port.dart';
 
@@ -31,25 +31,26 @@ class SkillOpsService {
 
   /// Register a new pattern.
   Future<Pattern> registerPattern({
+    required String workspaceId,
     required String name,
     required String description,
-    required PatternType patternType,
-    required PatternCriteria criteria,
-    List<String>? triggerSkillIds,
+    Map<String, dynamic> features = const {},
+    double confidence = 0.0,
   }) async {
     final patternId = _generateId('pat');
     final now = DateTime.now();
 
     final pattern = Pattern(
       patternId: patternId,
+      workspaceId: workspaceId,
       name: name,
       description: description,
-      patternType: patternType,
-      criteria: criteria,
-      firstObserved: now,
-      lastObserved: now,
-      status: PatternStatus.active,
-      triggerSkillIds: triggerSkillIds ?? const [],
+      features: features,
+      confidence: confidence,
+      lastObservedAt: now,
+      status: PatternStatus.proposed,
+      createdAt: now,
+      updatedAt: now,
     );
 
     await _storage.savePattern(pattern);
@@ -66,24 +67,24 @@ class SkillOpsService {
     return _storage.getActivePatterns();
   }
 
-  /// Detect pattern matches in events.
-  Future<List<PatternMatch>> detectPatterns(List<Event> events) async {
+  /// Detect pattern matches in facts.
+  Future<List<PatternMatch>> detectPatterns(List<Fact> facts) async {
     final patterns = await _storage.getActivePatterns();
     final matches = <PatternMatch>[];
 
     for (final pattern in patterns) {
-      final matchingEvents = _matchPattern(pattern, events);
-      if (matchingEvents.isNotEmpty) {
+      final matchingFacts = _matchPattern(pattern, facts);
+      if (matchingFacts.isNotEmpty) {
         matches.add(PatternMatch(
           pattern: pattern,
-          matchingEventIds: matchingEvents.map((e) => e.eventId).toList(),
+          matchingFactIds: matchingFacts.map((f) => f.factId).toList(),
           matchedAt: DateTime.now(),
         ));
 
-        // Update pattern statistics
+        // Update last observed time
         final updatedPattern = pattern.copyWith(
-          lastObserved: DateTime.now(),
-          matchCount: pattern.matchCount + matchingEvents.length,
+          lastObservedAt: DateTime.now(),
+          updatedAt: DateTime.now(),
         );
         await _storage.savePattern(updatedPattern);
       }
@@ -98,29 +99,25 @@ class SkillOpsService {
 
   /// Register a new skill.
   Future<Skill> registerSkill({
+    required String workspaceId,
     required String name,
     required String description,
-    required SkillCategory category,
-    Map<String, dynamic>? inputSchema,
-    Map<String, dynamic>? outputSchema,
-    List<SkillTrigger>? triggers,
-    String? rubricId,
+    List<SkillStep> steps = const [],
+    List<QualityGate> qualityGates = const [],
   }) async {
     final skillId = _generateId('skill');
     final now = DateTime.now();
 
     final skill = Skill(
       skillId: skillId,
+      workspaceId: workspaceId,
       name: name,
       description: description,
-      category: category,
-      inputSchema: inputSchema ?? const {},
-      outputSchema: outputSchema ?? const {},
-      triggers: triggers ?? const [],
+      steps: steps,
+      qualityGates: qualityGates,
       status: SkillStatus.active,
       createdAt: now,
       updatedAt: now,
-      rubricId: rubricId,
     );
 
     await _storage.saveSkill(skill);
@@ -170,22 +167,24 @@ class SkillOpsService {
 
   /// Create a rubric.
   Future<Rubric> createRubric({
+    required String workspaceId,
     required String name,
     required String description,
     required List<RubricDimension> dimensions,
-    double passingThreshold = 0.7,
-    List<String>? targetSkillIds,
+    Map<String, double> weights = const {},
+    Map<String, dynamic> thresholds = const {},
   }) async {
     final rubricId = _generateId('rub');
     final now = DateTime.now();
 
     final rubric = Rubric(
       rubricId: rubricId,
+      workspaceId: workspaceId,
       name: name,
       description: description,
       dimensions: dimensions,
-      passingThreshold: passingThreshold,
-      targetSkillIds: targetSkillIds ?? const [],
+      weights: weights,
+      thresholds: thresholds,
       status: RubricStatus.active,
       createdAt: now,
       updatedAt: now,
@@ -204,65 +203,53 @@ class SkillOpsService {
   // Evaluation Operations
   // =========================================================================
 
-  /// Evaluate skill output against rubric.
+  /// Evaluate using rubric with structured input/output.
   Future<EvaluationRun> evaluate({
-    required String skillId,
-    required String executionId,
-    required Map<String, dynamic> input,
-    required Map<String, dynamic> output,
-    String? rubricId,
+    required String workspaceId,
+    required String rubricId,
+    required EvaluationInput input,
     String evaluator = 'automated',
   }) async {
     // Get rubric
-    final Rubric rubric;
-    if (rubricId != null) {
-      final r = await _storage.getRubric(rubricId);
-      if (r == null) {
-        throw ArgumentError('Rubric not found: $rubricId');
-      }
-      rubric = r;
-    } else {
-      final skill = await _storage.getSkill(skillId);
-      if (skill?.rubricId == null) {
-        throw ArgumentError('No rubric specified for evaluation');
-      }
-      final r = await _storage.getRubric(skill!.rubricId!);
-      if (r == null) {
-        throw ArgumentError('Rubric not found: ${skill.rubricId}');
-      }
-      rubric = r;
+    final rubric = await _storage.getRubric(rubricId);
+    if (rubric == null) {
+      throw ArgumentError('Rubric not found: $rubricId');
     }
 
     final runId = _generateId('eval');
     final startTime = DateTime.now();
 
     // Evaluate each dimension
-    final dimensionScores = <DimensionScore>[];
+    final dimensionScores = <String, double>{};
     for (final dimension in rubric.dimensions) {
-      final score = await _evaluateDimension(dimension, input, output);
-      dimensionScores.add(score);
+      final score = await _evaluateDimension(dimension, input);
+      dimensionScores[dimension.dimensionId] = score;
     }
 
-    // Calculate overall score
-    final overallScore = _calculateOverallScore(dimensionScores, rubric);
-    final passed = overallScore >= rubric.passingThreshold;
+    // Calculate total score using weights
+    final totalScore = _calculateTotalScore(dimensionScores, rubric.weights);
+
+    // Determine grade from thresholds
+    final grade = _determineGrade(totalScore, rubric.thresholds);
 
     final completedAt = DateTime.now();
     final run = EvaluationRun(
-      runId: runId,
+      evaluationId: runId,
+      workspaceId: workspaceId,
       rubricId: rubric.rubricId,
-      skillId: skillId,
-      executionId: executionId,
+      rubricVersion: rubric.version,
+      policyVersion: '1.0.0',
+      asOf: startTime,
       input: input,
-      output: output,
-      dimensionScores: dimensionScores,
-      overallScore: overallScore,
-      passed: passed,
+      output: EvaluationOutput(
+        dimensionScores: dimensionScores,
+        totalScore: totalScore,
+        grade: grade,
+      ),
+      idempotencyKey: '${rubricId}_${startTime.millisecondsSinceEpoch}',
       status: EvaluationStatus.completed,
-      evaluator: evaluator,
-      startedAt: startTime,
+      createdAt: startTime,
       completedAt: completedAt,
-      durationMs: completedAt.difference(startTime).inMilliseconds,
     );
 
     await _storage.saveEvaluationRun(run);
@@ -283,72 +270,19 @@ class SkillOpsService {
   // Private Methods
   // =========================================================================
 
-  List<Event> _matchPattern(Pattern pattern, List<Event> events) {
-    return events.where((event) {
-      // Check event type match
-      if (pattern.criteria.eventTypes.isNotEmpty &&
-          !pattern.criteria.eventTypes.contains(event.eventType)) {
-        return false;
-      }
+  List<Fact> _matchPattern(Pattern pattern, List<Fact> facts) {
+    // Simple pattern matching based on features
+    if (pattern.features.isEmpty) return [];
 
-      // Check field conditions
-      for (final condition in pattern.criteria.conditions) {
-        if (!_checkCondition(condition, event.data)) {
-          return false;
-        }
+    return facts.where((fact) {
+      // Match by fact type if specified in features
+      final targetTypes = pattern.features['factTypes'];
+      if (targetTypes is List && targetTypes.isNotEmpty) {
+        if (!targetTypes.contains(fact.factType)) return false;
       }
 
       return true;
     }).toList();
-  }
-
-  bool _checkCondition(FieldCondition condition, Map<String, dynamic> data) {
-    final value = _getNestedValue(data, condition.field);
-    if (value == null && condition.operator != ConditionOperator.notExists) {
-      return false;
-    }
-
-    switch (condition.operator) {
-      case ConditionOperator.equals:
-        return value == condition.value;
-      case ConditionOperator.notEquals:
-        return value != condition.value;
-      case ConditionOperator.greaterThan:
-        return (value as num) > (condition.value as num);
-      case ConditionOperator.lessThan:
-        return (value as num) < (condition.value as num);
-      case ConditionOperator.greaterOrEqual:
-        return (value as num) >= (condition.value as num);
-      case ConditionOperator.lessOrEqual:
-        return (value as num) <= (condition.value as num);
-      case ConditionOperator.contains:
-        return value.toString().contains(condition.value.toString());
-      case ConditionOperator.startsWith:
-        return value.toString().startsWith(condition.value.toString());
-      case ConditionOperator.endsWith:
-        return value.toString().endsWith(condition.value.toString());
-      case ConditionOperator.matches:
-        return RegExp(condition.value.toString()).hasMatch(value.toString());
-      case ConditionOperator.exists:
-        return value != null;
-      case ConditionOperator.notExists:
-        return value == null;
-    }
-  }
-
-  dynamic _getNestedValue(Map<String, dynamic> data, String path) {
-    final parts = path.split('.');
-    dynamic current = data;
-
-    for (final part in parts) {
-      if (current is Map<String, dynamic>) {
-        current = current[part];
-      } else {
-        return null;
-      }
-    }
-
-    return current;
   }
 
   Future<Map<String, dynamic>> _dispatchSkillExecution(
@@ -359,70 +293,62 @@ class SkillOpsService {
     return {'result': 'executed', 'input': input};
   }
 
-  Future<DimensionScore> _evaluateDimension(
+  Future<double> _evaluateDimension(
     RubricDimension dimension,
-    Map<String, dynamic> input,
-    Map<String, dynamic> output,
+    EvaluationInput input,
   ) async {
-    // Simple automated evaluation - would use LLM for complex evaluation
+    // Simple automated evaluation
     double score = 0.5;
 
-    if (dimension.evaluationType == EvaluationType.automated) {
-      // Check if required fields exist in output
-      score = output.isNotEmpty ? 0.8 : 0.2;
-    } else if (_llm != null &&
-        dimension.evaluationType == EvaluationType.llmBased) {
+    if (dimension.measurementType == MeasurementType.boolean) {
+      // Boolean: check if target exists
+      score = input.targetId != null ? 1.0 : 0.0;
+    } else if (_llm != null) {
       // Use LLM for evaluation
       final response = await _llm!.complete(LlmRequest(
         systemPrompt: '''You are an evaluator. Score the output on a scale of 0-1.
 Dimension: ${dimension.name}
 Description: ${dimension.description}
 Return only a number between 0 and 1.''',
-        prompt: 'Input: $input\nOutput: $output',
+        prompt: 'Input: ${input.toJson()}',
         maxTokens: 10,
       ));
       score = double.tryParse(response.content.trim()) ?? 0.5;
     }
 
-    return DimensionScore(
-      dimensionId: dimension.dimensionId,
-      dimensionName: dimension.name,
-      score: score,
-      weight: dimension.weight,
-    );
+    return score;
   }
 
-  double _calculateOverallScore(
-    List<DimensionScore> scores,
-    Rubric rubric,
+  double _calculateTotalScore(
+    Map<String, double> dimensionScores,
+    Map<String, double> weights,
   ) {
-    if (scores.isEmpty) return 0.0;
+    if (dimensionScores.isEmpty) return 0.0;
 
-    switch (rubric.weightingStrategy) {
-      case WeightingStrategy.equal:
-        return scores.fold(0.0, (sum, s) => sum + s.score) / scores.length;
-
-      case WeightingStrategy.custom:
-        final totalWeight = scores.fold(0.0, (sum, s) => sum + s.weight);
-        if (totalWeight == 0) return 0.0;
-        return scores.fold(0.0, (sum, s) => sum + s.weightedScore) / totalWeight;
-
-      case WeightingStrategy.minimum:
-        return scores.fold(1.0, (min, s) => s.score < min ? s.score : min);
-
-      case WeightingStrategy.ranked:
-        // Simple ranked weighting
-        final sorted = [...scores]..sort((a, b) => b.weight.compareTo(a.weight));
-        var totalWeight = 0.0;
-        var weightedSum = 0.0;
-        var rank = 1.0;
-        for (final score in sorted) {
-          weightedSum += score.score * rank;
-          totalWeight += rank;
-          rank *= 0.8;
-        }
-        return weightedSum / totalWeight;
+    if (weights.isEmpty) {
+      // Equal weighting
+      return dimensionScores.values.fold(0.0, (sum, s) => sum + s) /
+          dimensionScores.length;
     }
+
+    // Weighted score
+    var totalWeight = 0.0;
+    var weightedSum = 0.0;
+    for (final entry in dimensionScores.entries) {
+      final weight = weights[entry.key] ?? 1.0;
+      weightedSum += entry.value * weight;
+      totalWeight += weight;
+    }
+    return totalWeight > 0 ? weightedSum / totalWeight : 0.0;
+  }
+
+  String _determineGrade(double totalScore, Map<String, dynamic> thresholds) {
+    final passingThreshold = thresholds['pass'] as num? ?? 0.7;
+    if (totalScore >= 0.9) return 'A';
+    if (totalScore >= 0.8) return 'B';
+    if (totalScore >= passingThreshold) return 'C';
+    if (totalScore >= 0.5) return 'D';
+    return 'F';
   }
 
   String _generateId(String prefix) {
@@ -437,15 +363,15 @@ class PatternMatch {
   /// Matched pattern.
   final Pattern pattern;
 
-  /// Matching event IDs.
-  final List<String> matchingEventIds;
+  /// Matching fact IDs.
+  final List<String> matchingFactIds;
 
   /// When pattern was matched.
   final DateTime matchedAt;
 
   const PatternMatch({
     required this.pattern,
-    required this.matchingEventIds,
+    required this.matchingFactIds,
     required this.matchedAt,
   });
 }

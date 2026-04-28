@@ -1,14 +1,18 @@
 /// Pattern entity for L3 SkillOps Layer.
 ///
 /// Represents recurring patterns discovered in the fact graph.
+/// Reference: 03-data-model-specification.md Section 2.16.1
 library;
 
 /// Pattern represents a discovered recurring pattern.
 ///
-/// Patterns emerge from analyzing events and can trigger skills.
+/// Patterns emerge from analyzing facts and can be promoted to skills.
 class Pattern {
   /// Unique pattern identifier.
   final String patternId;
+
+  /// Workspace identifier for multi-tenant isolation.
+  final String workspaceId;
 
   /// Pattern name.
   final String name;
@@ -16,94 +20,104 @@ class Pattern {
   /// Pattern description.
   final String description;
 
-  /// Pattern type/category.
-  final PatternType patternType;
+  /// Pattern scope for context.
+  /// Reference: Design Section 2.16.1 - person | team | project | global.
+  final PatternScope scope;
 
-  /// Pattern matching criteria.
-  final PatternCriteria criteria;
+  /// Observable characteristics of this pattern.
+  /// Reference: Design Section 2.16.1 - features: Map<String, dynamic>.
+  final Map<String, dynamic> features;
 
-  /// Frequency of occurrence.
-  final PatternFrequency frequency;
+  /// Supporting fact IDs that contribute to this pattern.
+  final List<String> supportingFactIds;
 
-  /// Example event IDs that match this pattern.
-  final List<String> exampleEventIds;
-
-  /// Associated entity types.
-  final List<String> entityTypes;
+  /// Evidence references for traceability.
+  /// Reference: Design Section 2.16.1 - List<String>.
+  final List<String> evidenceRefs;
 
   /// Confidence score for pattern validity.
   final double confidence;
 
-  /// Number of matches found.
-  final int matchCount;
+  /// Start of temporal validity.
+  final DateTime? validFrom;
 
-  /// First observed date.
-  final DateTime firstObserved;
+  /// End of temporal validity.
+  final DateTime? validTo;
 
-  /// Last observed date.
-  final DateTime lastObserved;
+  /// Last time pattern was observed.
+  final DateTime lastObservedAt;
 
   /// Pattern status.
+  /// Reference: Design Section 2.16.1 - observed | proposed | confirmed | rejected | merged | codified | deprecated | archived
   final PatternStatus status;
 
-  /// Associated skill IDs that can be triggered.
-  final List<String> triggerSkillIds;
+  /// LLM suggestion that created this pattern.
+  final String? derivedFrom;
+
+  /// When this pattern was created.
+  final DateTime createdAt;
+
+  /// When this pattern was last updated.
+  final DateTime updatedAt;
 
   /// Additional metadata.
   final Map<String, dynamic> metadata;
 
   const Pattern({
     required this.patternId,
+    required this.workspaceId,
     required this.name,
     required this.description,
-    required this.patternType,
-    required this.criteria,
-    this.frequency = const PatternFrequency(),
-    this.exampleEventIds = const [],
-    this.entityTypes = const [],
+    this.scope = PatternScope.person,
+    this.features = const {},
+    this.supportingFactIds = const [],
+    this.evidenceRefs = const [],
     this.confidence = 0.0,
-    this.matchCount = 0,
-    required this.firstObserved,
-    required this.lastObserved,
-    this.status = PatternStatus.active,
-    this.triggerSkillIds = const [],
+    this.validFrom,
+    this.validTo,
+    required this.lastObservedAt,
+    this.status = PatternStatus.proposed,
+    this.derivedFrom,
+    required this.createdAt,
+    required this.updatedAt,
     this.metadata = const {},
   });
 
   factory Pattern.fromJson(Map<String, dynamic> json) {
     return Pattern(
       patternId: json['patternId'] as String? ?? '',
+      workspaceId: json['workspaceId'] as String? ?? 'default',
       name: json['name'] as String? ?? '',
       description: json['description'] as String? ?? '',
-      patternType:
-          PatternType.fromString(json['patternType'] as String? ?? 'recurring'),
-      criteria: PatternCriteria.fromJson(
-          json['criteria'] as Map<String, dynamic>? ?? {}),
-      frequency: json['frequency'] != null
-          ? PatternFrequency.fromJson(json['frequency'] as Map<String, dynamic>)
-          : const PatternFrequency(),
-      exampleEventIds: (json['exampleEventIds'] as List<dynamic>?)
+      scope: PatternScope.fromString(json['scope'] as String? ?? 'person'),
+      features: json['features'] as Map<String, dynamic>? ?? {},
+      supportingFactIds: (json['supportingFactIds'] as List<dynamic>?)
               ?.map((e) => e as String)
               .toList() ??
           [],
-      entityTypes: (json['entityTypes'] as List<dynamic>?)
+      evidenceRefs: (json['evidenceRefs'] as List<dynamic>?)
               ?.map((e) => e as String)
               .toList() ??
           [],
       confidence: (json['confidence'] as num?)?.toDouble() ?? 0.0,
-      matchCount: json['matchCount'] as int? ?? 0,
-      firstObserved: json['firstObserved'] != null
-          ? DateTime.parse(json['firstObserved'] as String)
-          : DateTime.now(),
-      lastObserved: json['lastObserved'] != null
-          ? DateTime.parse(json['lastObserved'] as String)
+      validFrom: json['validFrom'] != null
+          ? DateTime.parse(json['validFrom'] as String)
+          : null,
+      validTo: json['validTo'] != null
+          ? DateTime.parse(json['validTo'] as String)
+          : null,
+      lastObservedAt: json['lastObservedAt'] != null
+          ? DateTime.parse(json['lastObservedAt'] as String)
           : DateTime.now(),
       status:
-          PatternStatus.fromString(json['status'] as String? ?? 'active'),
-      triggerSkillIds: (json['triggerSkillIds'] as List<dynamic>?)
-              ?.map((e) => e as String)
-              .toList() ??
-          [],
+          PatternStatus.fromString(json['status'] as String? ?? 'proposed'),
+      derivedFrom: json['derivedFrom'] as String?,
+      createdAt: json['createdAt'] != null
+          ? DateTime.parse(json['createdAt'] as String)
+          : DateTime.now(),
+      updatedAt: json['updatedAt'] != null
+          ? DateTime.parse(json['updatedAt'] as String)
+          : DateTime.now(),
       metadata: json['metadata'] as Map<String, dynamic>? ?? {},
     );
   }
@@ -111,67 +125,73 @@ class Pattern {
   Map<String, dynamic> toJson() {
     return {
       'patternId': patternId,
+      'workspaceId': workspaceId,
       'name': name,
       'description': description,
-      'patternType': patternType.name,
-      'criteria': criteria.toJson(),
-      'frequency': frequency.toJson(),
-      if (exampleEventIds.isNotEmpty) 'exampleEventIds': exampleEventIds,
-      if (entityTypes.isNotEmpty) 'entityTypes': entityTypes,
+      'scope': scope.name,
+      if (features.isNotEmpty) 'features': Map<String, dynamic>.from(features),
+      if (supportingFactIds.isNotEmpty) 'supportingFactIds': supportingFactIds,
+      if (evidenceRefs.isNotEmpty) 'evidenceRefs': evidenceRefs,
       'confidence': confidence,
-      'matchCount': matchCount,
-      'firstObserved': firstObserved.toIso8601String(),
-      'lastObserved': lastObserved.toIso8601String(),
+      if (validFrom != null) 'validFrom': validFrom!.toIso8601String(),
+      if (validTo != null) 'validTo': validTo!.toIso8601String(),
+      'lastObservedAt': lastObservedAt.toIso8601String(),
       'status': status.name,
-      if (triggerSkillIds.isNotEmpty) 'triggerSkillIds': triggerSkillIds,
+      if (derivedFrom != null) 'derivedFrom': derivedFrom,
+      'createdAt': createdAt.toIso8601String(),
+      'updatedAt': updatedAt.toIso8601String(),
       if (metadata.isNotEmpty) 'metadata': metadata,
     };
   }
 
   Pattern copyWith({
     String? patternId,
+    String? workspaceId,
     String? name,
     String? description,
-    PatternType? patternType,
-    PatternCriteria? criteria,
-    PatternFrequency? frequency,
-    List<String>? exampleEventIds,
-    List<String>? entityTypes,
+    PatternScope? scope,
+    Map<String, dynamic>? features,
+    List<String>? supportingFactIds,
+    List<String>? evidenceRefs,
     double? confidence,
-    int? matchCount,
-    DateTime? firstObserved,
-    DateTime? lastObserved,
+    DateTime? validFrom,
+    DateTime? validTo,
+    DateTime? lastObservedAt,
     PatternStatus? status,
-    List<String>? triggerSkillIds,
+    String? derivedFrom,
+    DateTime? createdAt,
+    DateTime? updatedAt,
     Map<String, dynamic>? metadata,
   }) {
     return Pattern(
       patternId: patternId ?? this.patternId,
+      workspaceId: workspaceId ?? this.workspaceId,
       name: name ?? this.name,
       description: description ?? this.description,
-      patternType: patternType ?? this.patternType,
-      criteria: criteria ?? this.criteria,
-      frequency: frequency ?? this.frequency,
-      exampleEventIds: exampleEventIds ?? this.exampleEventIds,
-      entityTypes: entityTypes ?? this.entityTypes,
+      scope: scope ?? this.scope,
+      features: features ?? this.features,
+      supportingFactIds: supportingFactIds ?? this.supportingFactIds,
+      evidenceRefs: evidenceRefs ?? this.evidenceRefs,
       confidence: confidence ?? this.confidence,
-      matchCount: matchCount ?? this.matchCount,
-      firstObserved: firstObserved ?? this.firstObserved,
-      lastObserved: lastObserved ?? this.lastObserved,
+      validFrom: validFrom ?? this.validFrom,
+      validTo: validTo ?? this.validTo,
+      lastObservedAt: lastObservedAt ?? this.lastObservedAt,
       status: status ?? this.status,
-      triggerSkillIds: triggerSkillIds ?? this.triggerSkillIds,
+      derivedFrom: derivedFrom ?? this.derivedFrom,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
       metadata: metadata ?? this.metadata,
     );
   }
 
-  /// Check if pattern has enough evidence.
-  bool get hasEnoughEvidence => matchCount >= 3 && confidence >= 0.7;
+  /// Check if pattern is confirmed and active.
+  bool get isActive => status == PatternStatus.confirmed;
 
-  /// Duration since first observed.
-  Duration get observationSpan => lastObserved.difference(firstObserved);
+  /// Check if pattern has high confidence (>= 0.8).
+  bool get isHighConfidence => confidence >= 0.8;
 
   @override
-  String toString() => 'Pattern($patternId, name: $name, type: $patternType)';
+  String toString() => 'Pattern($patternId, name: $name)';
 
   @override
   bool operator ==(Object other) =>
@@ -182,242 +202,60 @@ class Pattern {
   int get hashCode => patternId.hashCode;
 }
 
-/// Pattern types.
-enum PatternType {
-  /// Recurring event pattern.
-  recurring,
-
-  /// Sequential pattern (A then B).
-  sequential,
-
-  /// Co-occurrence pattern.
-  coOccurrence,
-
-  /// Anomaly pattern.
-  anomaly,
-
-  /// Trend pattern.
-  trend,
-
-  /// Seasonal pattern.
-  seasonal,
-
-  /// Behavioral pattern.
-  behavioral;
-
-  static PatternType fromString(String value) {
-    return PatternType.values.firstWhere(
-      (e) => e.name == value,
-      orElse: () => PatternType.recurring,
-    );
-  }
-}
-
 /// Pattern status.
+/// Reference: Design Section 2.16.1 - observed | proposed | confirmed | rejected | merged | codified | deprecated | archived
 enum PatternStatus {
-  /// Active pattern.
-  active,
+  /// Mining output - initial observation.
+  observed,
 
-  /// Under evaluation.
-  evaluating,
+  /// Observation threshold met - pending confirmation.
+  proposed,
 
-  /// Confirmed valid.
+  /// User confirms or confidence threshold met.
   confirmed,
 
-  /// Deprecated/invalid.
+  /// Failed validation.
+  rejected,
+
+  /// Duplicate found - merged into another pattern.
+  merged,
+
+  /// Skill generated from this pattern.
+  codified,
+
+  /// No longer relevant.
   deprecated,
 
-  /// Archived.
+  /// Cleanup - removed from active use.
   archived;
 
   static PatternStatus fromString(String value) {
     return PatternStatus.values.firstWhere(
       (e) => e.name == value,
-      orElse: () => PatternStatus.active,
+      orElse: () => PatternStatus.proposed,
     );
   }
 }
 
-/// Pattern matching criteria.
-class PatternCriteria {
-  /// Event types to match.
-  final List<String> eventTypes;
+/// Pattern scope levels.
+/// Reference: Design Section 2.16.1 - person | team | project | global
+enum PatternScope {
+  /// Person-specific pattern.
+  person,
 
-  /// Entity types to match.
-  final List<String> entityTypes;
+  /// Team-level pattern.
+  team,
 
-  /// Required field conditions.
-  final List<FieldCondition> conditions;
+  /// Project-level pattern.
+  project,
 
-  /// Time window for pattern matching.
-  final Duration? timeWindow;
+  /// Global pattern across all workspaces.
+  global;
 
-  /// Minimum occurrences required.
-  final int minOccurrences;
-
-  /// Custom matching expression.
-  final String? expression;
-
-  const PatternCriteria({
-    this.eventTypes = const [],
-    this.entityTypes = const [],
-    this.conditions = const [],
-    this.timeWindow,
-    this.minOccurrences = 1,
-    this.expression,
-  });
-
-  factory PatternCriteria.fromJson(Map<String, dynamic> json) {
-    return PatternCriteria(
-      eventTypes: (json['eventTypes'] as List<dynamic>?)
-              ?.map((e) => e as String)
-              .toList() ??
-          [],
-      entityTypes: (json['entityTypes'] as List<dynamic>?)
-              ?.map((e) => e as String)
-              .toList() ??
-          [],
-      conditions: (json['conditions'] as List<dynamic>?)
-              ?.map((e) => FieldCondition.fromJson(e as Map<String, dynamic>))
-              .toList() ??
-          [],
-      timeWindow: json['timeWindowMs'] != null
-          ? Duration(milliseconds: json['timeWindowMs'] as int)
-          : null,
-      minOccurrences: json['minOccurrences'] as int? ?? 1,
-      expression: json['expression'] as String?,
-    );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      if (eventTypes.isNotEmpty) 'eventTypes': eventTypes,
-      if (entityTypes.isNotEmpty) 'entityTypes': entityTypes,
-      if (conditions.isNotEmpty)
-        'conditions': conditions.map((c) => c.toJson()).toList(),
-      if (timeWindow != null) 'timeWindowMs': timeWindow!.inMilliseconds,
-      'minOccurrences': minOccurrences,
-      if (expression != null) 'expression': expression,
-    };
-  }
-}
-
-/// Field condition for pattern matching.
-class FieldCondition {
-  /// Field path.
-  final String field;
-
-  /// Comparison operator.
-  final ConditionOperator operator;
-
-  /// Value to compare.
-  final dynamic value;
-
-  const FieldCondition({
-    required this.field,
-    required this.operator,
-    required this.value,
-  });
-
-  factory FieldCondition.fromJson(Map<String, dynamic> json) {
-    return FieldCondition(
-      field: json['field'] as String? ?? '',
-      operator: ConditionOperator.fromString(
-          json['operator'] as String? ?? 'equals'),
-      value: json['value'],
-    );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'field': field,
-      'operator': operator.name,
-      'value': value,
-    };
-  }
-}
-
-/// Condition operators.
-enum ConditionOperator {
-  equals,
-  notEquals,
-  greaterThan,
-  lessThan,
-  greaterOrEqual,
-  lessOrEqual,
-  contains,
-  startsWith,
-  endsWith,
-  matches,
-  exists,
-  notExists;
-
-  static ConditionOperator fromString(String value) {
-    return ConditionOperator.values.firstWhere(
+  static PatternScope fromString(String value) {
+    return PatternScope.values.firstWhere(
       (e) => e.name == value,
-      orElse: () => ConditionOperator.equals,
-    );
-  }
-}
-
-/// Pattern frequency statistics.
-class PatternFrequency {
-  /// Total occurrences.
-  final int total;
-
-  /// Daily average.
-  final double dailyAverage;
-
-  /// Weekly average.
-  final double weeklyAverage;
-
-  /// Monthly average.
-  final double monthlyAverage;
-
-  /// Trend direction.
-  final TrendDirection trend;
-
-  const PatternFrequency({
-    this.total = 0,
-    this.dailyAverage = 0.0,
-    this.weeklyAverage = 0.0,
-    this.monthlyAverage = 0.0,
-    this.trend = TrendDirection.stable,
-  });
-
-  factory PatternFrequency.fromJson(Map<String, dynamic> json) {
-    return PatternFrequency(
-      total: json['total'] as int? ?? 0,
-      dailyAverage: (json['dailyAverage'] as num?)?.toDouble() ?? 0.0,
-      weeklyAverage: (json['weeklyAverage'] as num?)?.toDouble() ?? 0.0,
-      monthlyAverage: (json['monthlyAverage'] as num?)?.toDouble() ?? 0.0,
-      trend:
-          TrendDirection.fromString(json['trend'] as String? ?? 'stable'),
-    );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'total': total,
-      'dailyAverage': dailyAverage,
-      'weeklyAverage': weeklyAverage,
-      'monthlyAverage': monthlyAverage,
-      'trend': trend.name,
-    };
-  }
-}
-
-/// Trend directions.
-enum TrendDirection {
-  increasing,
-  decreasing,
-  stable,
-  volatile;
-
-  static TrendDirection fromString(String value) {
-    return TrendDirection.values.firstWhere(
-      (e) => e.name == value,
-      orElse: () => TrendDirection.stable,
+      orElse: () => PatternScope.person,
     );
   }
 }

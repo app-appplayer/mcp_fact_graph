@@ -1,6 +1,7 @@
 /// Rubric entity for L3 SkillOps Layer.
 ///
 /// Represents evaluation rubrics for assessing skill outputs.
+/// Reference: 03-data-model-specification.md Section 2.16.4
 library;
 
 /// Rubric represents evaluation criteria for skills.
@@ -9,6 +10,9 @@ library;
 class Rubric {
   /// Unique rubric identifier.
   final String rubricId;
+
+  /// Workspace identifier for multi-tenant isolation.
+  final String workspaceId;
 
   /// Rubric name.
   final String name;
@@ -22,14 +26,17 @@ class Rubric {
   /// Evaluation dimensions.
   final List<RubricDimension> dimensions;
 
-  /// Overall passing threshold (0.0-1.0).
-  final double passingThreshold;
+  /// Dimension weights (dimensionId -> weight, sum = 1.0).
+  /// Reference: Design Section 2.16.4 - weights.
+  final Map<String, double> weights;
 
-  /// Weighting strategy for dimensions.
-  final WeightingStrategy weightingStrategy;
+  /// Pass/fail/grade boundaries.
+  /// Reference: Design Section 2.16.4 - thresholds.
+  final Map<String, dynamic> thresholds;
 
-  /// Target skill IDs this rubric applies to.
-  final List<String> targetSkillIds;
+  /// Policy binding reference (policy ID string).
+  /// Reference: Design Section 2.16.4 - policyBinding.
+  final String? policyBinding;
 
   /// Rubric status.
   final RubricStatus status;
@@ -45,13 +52,14 @@ class Rubric {
 
   const Rubric({
     required this.rubricId,
+    required this.workspaceId,
     required this.name,
     required this.description,
     this.version = '1.0.0',
     this.dimensions = const [],
-    this.passingThreshold = 0.7,
-    this.weightingStrategy = WeightingStrategy.equal,
-    this.targetSkillIds = const [],
+    this.weights = const {},
+    this.thresholds = const {},
+    this.policyBinding,
     this.status = RubricStatus.active,
     required this.createdAt,
     required this.updatedAt,
@@ -61,6 +69,7 @@ class Rubric {
   factory Rubric.fromJson(Map<String, dynamic> json) {
     return Rubric(
       rubricId: json['rubricId'] as String? ?? '',
+      workspaceId: json['workspaceId'] as String? ?? 'default',
       name: json['name'] as String? ?? '',
       description: json['description'] as String? ?? '',
       version: json['version'] as String? ?? '1.0.0',
@@ -68,13 +77,11 @@ class Rubric {
               ?.map((e) => RubricDimension.fromJson(e as Map<String, dynamic>))
               .toList() ??
           [],
-      passingThreshold: (json['passingThreshold'] as num?)?.toDouble() ?? 0.7,
-      weightingStrategy: WeightingStrategy.fromString(
-          json['weightingStrategy'] as String? ?? 'equal'),
-      targetSkillIds: (json['targetSkillIds'] as List<dynamic>?)
-              ?.map((e) => e as String)
-              .toList() ??
-          [],
+      weights: (json['weights'] as Map<String, dynamic>?)
+              ?.map((k, v) => MapEntry(k, (v as num).toDouble())) ??
+          {},
+      thresholds: json['thresholds'] as Map<String, dynamic>? ?? {},
+      policyBinding: json['policyBinding'] as String?,
       status: RubricStatus.fromString(json['status'] as String? ?? 'active'),
       createdAt: json['createdAt'] != null
           ? DateTime.parse(json['createdAt'] as String)
@@ -89,14 +96,15 @@ class Rubric {
   Map<String, dynamic> toJson() {
     return {
       'rubricId': rubricId,
+      'workspaceId': workspaceId,
       'name': name,
       'description': description,
       'version': version,
       if (dimensions.isNotEmpty)
         'dimensions': dimensions.map((d) => d.toJson()).toList(),
-      'passingThreshold': passingThreshold,
-      'weightingStrategy': weightingStrategy.name,
-      if (targetSkillIds.isNotEmpty) 'targetSkillIds': targetSkillIds,
+      if (weights.isNotEmpty) 'weights': weights,
+      if (thresholds.isNotEmpty) 'thresholds': thresholds,
+      if (policyBinding != null) 'policyBinding': policyBinding,
       'status': status.name,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
@@ -106,13 +114,14 @@ class Rubric {
 
   Rubric copyWith({
     String? rubricId,
+    String? workspaceId,
     String? name,
     String? description,
     String? version,
     List<RubricDimension>? dimensions,
-    double? passingThreshold,
-    WeightingStrategy? weightingStrategy,
-    List<String>? targetSkillIds,
+    Map<String, double>? weights,
+    Map<String, dynamic>? thresholds,
+    String? policyBinding,
     RubricStatus? status,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -120,13 +129,14 @@ class Rubric {
   }) {
     return Rubric(
       rubricId: rubricId ?? this.rubricId,
+      workspaceId: workspaceId ?? this.workspaceId,
       name: name ?? this.name,
       description: description ?? this.description,
       version: version ?? this.version,
       dimensions: dimensions ?? this.dimensions,
-      passingThreshold: passingThreshold ?? this.passingThreshold,
-      weightingStrategy: weightingStrategy ?? this.weightingStrategy,
-      targetSkillIds: targetSkillIds ?? this.targetSkillIds,
+      weights: weights ?? this.weights,
+      thresholds: thresholds ?? this.thresholds,
+      policyBinding: policyBinding ?? this.policyBinding,
       status: status ?? this.status,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -134,9 +144,25 @@ class Rubric {
     );
   }
 
-  /// Total weight of all dimensions.
-  double get totalWeight =>
-      dimensions.fold(0.0, (sum, d) => sum + d.weight);
+  /// Check if rubric is active.
+  bool get isActive => status == RubricStatus.active;
+
+  /// Check if rubric has dimensions defined.
+  bool get hasDimensions => dimensions.isNotEmpty;
+
+  /// Get dimension by ID.
+  RubricDimension? getDimension(String dimensionId) {
+    try {
+      return dimensions.firstWhere((d) => d.dimensionId == dimensionId);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Get dimensions for a specific measurement type.
+  List<RubricDimension> dimensionsByMeasurementType(MeasurementType type) {
+    return dimensions.where((d) => d.measurementType == type).toList();
+  }
 
   @override
   String toString() => 'Rubric($rubricId, name: $name)';
@@ -150,18 +176,16 @@ class Rubric {
 }
 
 /// Rubric status.
+/// Reference: Design Section 2.16.4 - draft | active | deprecated
 enum RubricStatus {
-  /// Active rubric.
-  active,
-
   /// Under development.
   draft,
 
-  /// Disabled.
-  disabled,
+  /// Active rubric.
+  active,
 
-  /// Archived.
-  archived;
+  /// No longer recommended for use.
+  deprecated;
 
   static RubricStatus fromString(String value) {
     return RubricStatus.values.firstWhere(
@@ -171,29 +195,8 @@ enum RubricStatus {
   }
 }
 
-/// Weighting strategies for dimension scores.
-enum WeightingStrategy {
-  /// Equal weight for all dimensions.
-  equal,
-
-  /// Custom weights per dimension.
-  custom,
-
-  /// Weight by importance ranking.
-  ranked,
-
-  /// Minimum of all dimensions.
-  minimum;
-
-  static WeightingStrategy fromString(String value) {
-    return WeightingStrategy.values.firstWhere(
-      (e) => e.name == value,
-      orElse: () => WeightingStrategy.equal,
-    );
-  }
-}
-
 /// Evaluation dimension within a rubric.
+/// Reference: Design Section 2.16.4 - RubricDimension with measurementMethod.
 class RubricDimension {
   /// Dimension identifier.
   final String dimensionId;
@@ -204,26 +207,34 @@ class RubricDimension {
   /// Dimension description.
   final String description;
 
-  /// Weight (0.0-1.0 or custom).
-  final double weight;
+  /// How to measure this dimension.
+  final String measurementMethod;
 
-  /// Score levels.
+  /// Measurement type.
+  final MeasurementType measurementType;
+
+  /// Minimum possible score.
+  final double minScore;
+
+  /// Maximum possible score.
+  final double maxScore;
+
+  /// Score levels (grade descriptions).
   final List<ScoreLevel> levels;
 
-  /// Evaluation type.
-  final EvaluationType evaluationType;
-
-  /// Whether this dimension is required.
-  final bool required;
+  /// Evidence types needed for this dimension.
+  final List<String> evidenceTypes;
 
   const RubricDimension({
     required this.dimensionId,
     required this.name,
     required this.description,
-    this.weight = 1.0,
+    this.measurementMethod = '',
+    this.measurementType = MeasurementType.numeric,
+    this.minScore = 0.0,
+    this.maxScore = 1.0,
     this.levels = const [],
-    this.evaluationType = EvaluationType.manual,
-    this.required = true,
+    this.evidenceTypes = const [],
   });
 
   factory RubricDimension.fromJson(Map<String, dynamic> json) {
@@ -231,14 +242,19 @@ class RubricDimension {
       dimensionId: json['dimensionId'] as String? ?? '',
       name: json['name'] as String? ?? '',
       description: json['description'] as String? ?? '',
-      weight: (json['weight'] as num?)?.toDouble() ?? 1.0,
+      measurementMethod: json['measurementMethod'] as String? ?? '',
+      measurementType: MeasurementType.fromString(
+          json['measurementType'] as String? ?? 'numeric'),
+      minScore: (json['minScore'] as num?)?.toDouble() ?? 0.0,
+      maxScore: (json['maxScore'] as num?)?.toDouble() ?? 1.0,
       levels: (json['levels'] as List<dynamic>?)
               ?.map((e) => ScoreLevel.fromJson(e as Map<String, dynamic>))
               .toList() ??
           [],
-      evaluationType: EvaluationType.fromString(
-          json['evaluationType'] as String? ?? 'manual'),
-      required: json['required'] as bool? ?? true,
+      evidenceTypes: (json['evidenceTypes'] as List<dynamic>?)
+              ?.map((e) => e as String)
+              .toList() ??
+          [],
     );
   }
 
@@ -247,64 +263,67 @@ class RubricDimension {
       'dimensionId': dimensionId,
       'name': name,
       'description': description,
-      'weight': weight,
+      if (measurementMethod.isNotEmpty) 'measurementMethod': measurementMethod,
+      'measurementType': measurementType.name,
+      'minScore': minScore,
+      'maxScore': maxScore,
       if (levels.isNotEmpty) 'levels': levels.map((l) => l.toJson()).toList(),
-      'evaluationType': evaluationType.name,
-      'required': required,
+      if (evidenceTypes.isNotEmpty) 'evidenceTypes': evidenceTypes,
     };
   }
 }
 
-/// Evaluation types.
-enum EvaluationType {
-  /// Manual evaluation.
-  manual,
+/// Measurement types for dimensions.
+/// Reference: Design Section 2.16.4
+enum MeasurementType {
+  /// Numeric measurement.
+  numeric,
 
-  /// Automated evaluation.
-  automated,
+  /// Categorical measurement.
+  categorical,
 
-  /// LLM-based evaluation.
-  llmBased,
+  /// Boolean measurement.
+  boolean;
 
-  /// Rule-based evaluation.
-  ruleBased,
-
-  /// Hybrid evaluation.
-  hybrid;
-
-  static EvaluationType fromString(String value) {
-    return EvaluationType.values.firstWhere(
+  static MeasurementType fromString(String value) {
+    return MeasurementType.values.firstWhere(
       (e) => e.name == value,
-      orElse: () => EvaluationType.manual,
+      orElse: () => MeasurementType.numeric,
     );
   }
 }
 
 /// Score level definition.
+/// Reference: Design Section 2.16.4 - score range with min/max.
 class ScoreLevel {
-  /// Numeric score (0.0-1.0).
-  final double score;
-
-  /// Level label.
+  /// Level label (e.g., "Excellent", "Good", "Needs Improvement").
   final String label;
+
+  /// Minimum score for this level.
+  final double minScore;
+
+  /// Maximum score for this level.
+  final double maxScore;
 
   /// Level description.
   final String description;
 
-  /// Example indicators.
+  /// Observable indicators for this level.
   final List<String> indicators;
 
   const ScoreLevel({
-    required this.score,
     required this.label,
+    required this.minScore,
+    required this.maxScore,
     required this.description,
     this.indicators = const [],
   });
 
   factory ScoreLevel.fromJson(Map<String, dynamic> json) {
     return ScoreLevel(
-      score: (json['score'] as num?)?.toDouble() ?? 0.0,
       label: json['label'] as String? ?? '',
+      minScore: (json['minScore'] as num?)?.toDouble() ?? 0.0,
+      maxScore: (json['maxScore'] as num?)?.toDouble() ?? 1.0,
       description: json['description'] as String? ?? '',
       indicators: (json['indicators'] as List<dynamic>?)
               ?.map((e) => e as String)
@@ -315,8 +334,9 @@ class ScoreLevel {
 
   Map<String, dynamic> toJson() {
     return {
-      'score': score,
       'label': label,
+      'minScore': minScore,
+      'maxScore': maxScore,
       'description': description,
       if (indicators.isNotEmpty) 'indicators': indicators,
     };

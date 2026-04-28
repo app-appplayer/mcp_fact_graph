@@ -1,6 +1,7 @@
 /// Candidate entity for L1 FactGraph Layer.
 ///
 /// Represents a potential fact or event before confirmation.
+/// Reference: 03-data-model-specification.md Section 2.3
 library;
 
 /// Candidate represents an assembled fact/event pending confirmation.
@@ -11,11 +12,18 @@ class Candidate {
   /// Unique candidate identifier.
   final String candidateId;
 
+  /// Workspace identifier for multi-tenant isolation.
+  final String workspaceId;
+
   /// Object type (expense, schedule, task, etc.).
   final String objectType;
 
   /// Candidate status.
   final CandidateStatus status;
+
+  /// Resolution state tracking.
+  /// Reference: Design Section 2.3 - unresolved | partial | resolved
+  final ResolutionState resolutionState;
 
   /// Fragment IDs that compose this candidate.
   final List<String> fragmentIds;
@@ -23,8 +31,16 @@ class Candidate {
   /// Evidence IDs associated with this candidate.
   final List<String> evidenceIds;
 
-  /// Assembled fields from fragments.
+  /// Assembled fields from fragments (detailed tracking).
   final Map<String, CandidateField> fields;
+
+  /// Linked entity candidates.
+  /// Reference: Design Section 2.3 - EntityLink
+  final List<EntityLink> links;
+
+  /// Merge/split history for audit trail.
+  /// Reference: Design Section 2.3 - AuditEntry
+  final List<AuditEntry> auditTrail;
 
   /// Overall confidence (min of field confidences).
   final double confidence;
@@ -49,11 +65,15 @@ class Candidate {
 
   const Candidate({
     required this.candidateId,
+    required this.workspaceId,
     required this.objectType,
     this.status = CandidateStatus.open,
+    this.resolutionState = ResolutionState.unresolved,
     this.fragmentIds = const [],
     this.evidenceIds = const [],
     this.fields = const {},
+    this.links = const [],
+    this.auditTrail = const [],
     required this.confidence,
     this.unresolvedIssues = const [],
     required this.createdAt,
@@ -63,11 +83,19 @@ class Candidate {
     this.metadata = const {},
   });
 
+  /// Get fieldBag as simple Map for design compatibility.
+  /// Reference: Design Section 2.3 - fieldBag: Map<String, dynamic>
+  Map<String, dynamic> get fieldBag =>
+      fields.map((key, value) => MapEntry(key, value.value));
+
   factory Candidate.fromJson(Map<String, dynamic> json) {
     return Candidate(
       candidateId: json['candidateId'] as String? ?? '',
+      workspaceId: json['workspaceId'] as String? ?? 'default',
       objectType: json['objectType'] as String? ?? '',
       status: CandidateStatus.fromString(json['status'] as String? ?? 'open'),
+      resolutionState: ResolutionState.fromString(
+          json['resolutionState'] as String? ?? 'unresolved'),
       fragmentIds: (json['fragmentIds'] as List<dynamic>?)
               ?.map((e) => e as String)
               .toList() ??
@@ -83,6 +111,14 @@ class Candidate {
             ),
           ) ??
           {},
+      links: (json['links'] as List<dynamic>?)
+              ?.map((e) => EntityLink.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          [],
+      auditTrail: (json['auditTrail'] as List<dynamic>?)
+              ?.map((e) => AuditEntry.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          [],
       confidence: (json['confidence'] as num?)?.toDouble() ?? 0.0,
       unresolvedIssues: (json['unresolvedIssues'] as List<dynamic>?)
               ?.map((e) => UnresolvedIssue.fromJson(e as Map<String, dynamic>))
@@ -107,12 +143,17 @@ class Candidate {
   Map<String, dynamic> toJson() {
     return {
       'candidateId': candidateId,
+      'workspaceId': workspaceId,
       'objectType': objectType,
       'status': status.name,
+      'resolutionState': resolutionState.name,
       if (fragmentIds.isNotEmpty) 'fragmentIds': fragmentIds,
       if (evidenceIds.isNotEmpty) 'evidenceIds': evidenceIds,
       if (fields.isNotEmpty)
         'fields': fields.map((k, v) => MapEntry(k, v.toJson())),
+      if (links.isNotEmpty) 'links': links.map((l) => l.toJson()).toList(),
+      if (auditTrail.isNotEmpty)
+        'auditTrail': auditTrail.map((a) => a.toJson()).toList(),
       'confidence': confidence,
       if (unresolvedIssues.isNotEmpty)
         'unresolvedIssues': unresolvedIssues.map((u) => u.toJson()).toList(),
@@ -126,11 +167,15 @@ class Candidate {
 
   Candidate copyWith({
     String? candidateId,
+    String? workspaceId,
     String? objectType,
     CandidateStatus? status,
+    ResolutionState? resolutionState,
     List<String>? fragmentIds,
     List<String>? evidenceIds,
     Map<String, CandidateField>? fields,
+    List<EntityLink>? links,
+    List<AuditEntry>? auditTrail,
     double? confidence,
     List<UnresolvedIssue>? unresolvedIssues,
     DateTime? createdAt,
@@ -141,11 +186,15 @@ class Candidate {
   }) {
     return Candidate(
       candidateId: candidateId ?? this.candidateId,
+      workspaceId: workspaceId ?? this.workspaceId,
       objectType: objectType ?? this.objectType,
       status: status ?? this.status,
+      resolutionState: resolutionState ?? this.resolutionState,
       fragmentIds: fragmentIds ?? this.fragmentIds,
       evidenceIds: evidenceIds ?? this.evidenceIds,
       fields: fields ?? this.fields,
+      links: links ?? this.links,
+      auditTrail: auditTrail ?? this.auditTrail,
       confidence: confidence ?? this.confidence,
       unresolvedIssues: unresolvedIssues ?? this.unresolvedIssues,
       createdAt: createdAt ?? this.createdAt,
@@ -179,24 +228,31 @@ class Candidate {
 }
 
 /// Candidate status.
+/// Reference: Design Section 2.3 - open | qualifying | ready | confirmed | rejected | promoted | orphaned | merged
 enum CandidateStatus {
-  /// Open for editing/merging.
+  /// Initial state - awaiting fragments.
   open,
 
-  /// Pending review.
-  pendingReview,
+  /// Evaluation in progress.
+  qualifying,
 
-  /// Confirmed (promoted to event/fact).
+  /// All required fragments attached, awaiting confirmation.
+  ready,
+
+  /// Accepted as valid entity source.
   confirmed,
 
-  /// Rejected.
+  /// Failed validation.
   rejected,
 
-  /// Merged into another candidate.
-  merged,
+  /// Entity created from this candidate.
+  promoted,
 
-  /// Split into multiple candidates.
-  split;
+  /// Source evidence deleted (cascade).
+  orphaned,
+
+  /// Merged into another candidate.
+  merged;
 
   static CandidateStatus fromString(String value) {
     return CandidateStatus.values.firstWhere(
@@ -320,5 +376,125 @@ enum IssueType {
       (e) => e.name == value,
       orElse: () => IssueType.unknown,
     );
+  }
+}
+
+/// Resolution state for candidates.
+/// Reference: Design Section 2.3 - Status vs ResolutionState Matrix
+enum ResolutionState {
+  /// No required fields present.
+  unresolved,
+
+  /// Some required fields present.
+  partial,
+
+  /// All required fields present.
+  resolved;
+
+  static ResolutionState fromString(String value) {
+    return ResolutionState.values.firstWhere(
+      (e) => e.name == value,
+      orElse: () => ResolutionState.unresolved,
+    );
+  }
+}
+
+/// Entity link for candidate.
+/// Reference: Design Section 2.3 - EntityLink
+class EntityLink {
+  /// Linked entity ID.
+  final String entityId;
+
+  /// Role of the entity (owner, vendor, project, etc.).
+  final String role;
+
+  /// Link status.
+  final LinkStatus status;
+
+  const EntityLink({
+    required this.entityId,
+    required this.role,
+    this.status = LinkStatus.proposed,
+  });
+
+  factory EntityLink.fromJson(Map<String, dynamic> json) {
+    return EntityLink(
+      entityId: json['entityId'] as String? ?? '',
+      role: json['role'] as String? ?? '',
+      status: LinkStatus.fromString(json['status'] as String? ?? 'proposed'),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'entityId': entityId,
+      'role': role,
+      'status': status.name,
+    };
+  }
+}
+
+/// Link status.
+enum LinkStatus {
+  /// Proposed link.
+  proposed,
+
+  /// Confirmed link.
+  confirmed;
+
+  static LinkStatus fromString(String value) {
+    return LinkStatus.values.firstWhere(
+      (e) => e.name == value,
+      orElse: () => LinkStatus.proposed,
+    );
+  }
+}
+
+/// Audit entry for tracking candidate changes.
+/// Reference: Design Section 2.3 - AuditEntry
+class AuditEntry {
+  /// When the action occurred.
+  final DateTime timestamp;
+
+  /// Action type (create, merge, split, update, confirm).
+  final String action;
+
+  /// Related candidate/fragment ID.
+  final String? sourceId;
+
+  /// Field changes.
+  final Map<String, dynamic>? changes;
+
+  /// Reason for the action.
+  final String? reason;
+
+  const AuditEntry({
+    required this.timestamp,
+    required this.action,
+    this.sourceId,
+    this.changes,
+    this.reason,
+  });
+
+  factory AuditEntry.fromJson(Map<String, dynamic> json) {
+    return AuditEntry(
+      timestamp: json['timestamp'] != null
+          ? DateTime.parse(json['timestamp'] as String)
+          : DateTime.now(),
+      action: json['action'] as String? ?? '',
+      sourceId: json['sourceId'] as String?,
+      changes: json['changes'] as Map<String, dynamic>?,
+      reason: json['reason'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'timestamp': timestamp.toIso8601String(),
+      'action': action,
+      if (sourceId != null) 'sourceId': sourceId,
+      if (changes != null) 'changes': changes,
+      if (reason != null) 'reason': reason,
+    };
   }
 }

@@ -1,28 +1,36 @@
-/// Claim entity for L2 ContextOps Layer.
+/// VerifiableClaim entity for L2 ContextOps Layer.
 ///
 /// Represents claims that need verification against the fact graph.
+/// Internal implementation wrapping canonical Claim from mcp_bundle.
+/// Reference: 03-data-model-specification.md Section 2.15.3
 library;
 
-/// Claim represents an assertion to be verified.
+/// VerifiableClaim represents an assertion to be verified against the fact graph.
 ///
-/// Claims are extracted from responses for fact-checking.
-class Claim {
+/// This claim type has RDF-style subject/predicate/object structure
+/// and full verification workflow support.
+///
+/// Note: For simple claims from skill execution, use Claim from mcp_bundle.
+class VerifiableClaim {
   /// Unique claim identifier.
   final String claimId;
+
+  /// Workspace identifier for multi-tenant isolation.
+  final String workspaceId;
 
   /// The claim text/statement.
   final String statement;
 
-  /// Claim type/category.
+  /// Claim type/category (aligned with ClaimType from mcp_bundle).
   final ClaimType claimType;
 
-  /// Subject of the claim.
+  /// Subject of the claim (RDF-style).
   final String? subject;
 
-  /// Predicate/relationship.
+  /// Predicate/relationship (RDF-style).
   final String? predicate;
 
-  /// Object of the claim.
+  /// Object of the claim (RDF-style).
   final String? object;
 
   /// Source context (where the claim was made).
@@ -31,8 +39,8 @@ class Claim {
   /// Source response ID.
   final String? responseId;
 
-  /// Verification status.
-  final VerificationStatus verificationStatus;
+  /// Verification status (aligned with ClaimStatus from mcp_bundle).
+  final ClaimStatus verificationStatus;
 
   /// Verification result.
   final VerificationResult? verificationResult;
@@ -55,16 +63,17 @@ class Claim {
   /// Additional metadata.
   final Map<String, dynamic> metadata;
 
-  const Claim({
+  const VerifiableClaim({
     required this.claimId,
+    required this.workspaceId,
     required this.statement,
-    this.claimType = ClaimType.factual,
+    this.claimType = ClaimType.fact,
     this.subject,
     this.predicate,
     this.object,
     this.sourceContext,
     this.responseId,
-    this.verificationStatus = VerificationStatus.pending,
+    this.verificationStatus = ClaimStatus.pending,
     this.verificationResult,
     this.supportingEvidenceIds = const [],
     this.contradictingEvidenceIds = const [],
@@ -74,18 +83,19 @@ class Claim {
     this.metadata = const {},
   });
 
-  factory Claim.fromJson(Map<String, dynamic> json) {
-    return Claim(
+  factory VerifiableClaim.fromJson(Map<String, dynamic> json) {
+    return VerifiableClaim(
       claimId: json['claimId'] as String? ?? '',
+      workspaceId: json['workspaceId'] as String? ?? 'default',
       statement: json['statement'] as String? ?? '',
-      claimType:
-          ClaimType.fromString(json['claimType'] as String? ?? 'factual'),
+      claimType: ClaimType.fromString(
+          json['claimType'] as String? ?? 'fact'),
       subject: json['subject'] as String?,
       predicate: json['predicate'] as String?,
       object: json['object'] as String?,
       sourceContext: json['sourceContext'] as String?,
       responseId: json['responseId'] as String?,
-      verificationStatus: VerificationStatus.fromString(
+      verificationStatus: ClaimStatus.fromString(
           json['verificationStatus'] as String? ?? 'pending'),
       verificationResult: json['verificationResult'] != null
           ? VerificationResult.fromJson(
@@ -114,6 +124,7 @@ class Claim {
   Map<String, dynamic> toJson() {
     return {
       'claimId': claimId,
+      'workspaceId': workspaceId,
       'statement': statement,
       'claimType': claimType.name,
       if (subject != null) 'subject': subject,
@@ -135,8 +146,9 @@ class Claim {
     };
   }
 
-  Claim copyWith({
+  VerifiableClaim copyWith({
     String? claimId,
+    String? workspaceId,
     String? statement,
     ClaimType? claimType,
     String? subject,
@@ -144,7 +156,7 @@ class Claim {
     String? object,
     String? sourceContext,
     String? responseId,
-    VerificationStatus? verificationStatus,
+    ClaimStatus? verificationStatus,
     VerificationResult? verificationResult,
     List<String>? supportingEvidenceIds,
     List<String>? contradictingEvidenceIds,
@@ -153,8 +165,9 @@ class Claim {
     DateTime? verifiedAt,
     Map<String, dynamic>? metadata,
   }) {
-    return Claim(
+    return VerifiableClaim(
       claimId: claimId ?? this.claimId,
+      workspaceId: workspaceId ?? this.workspaceId,
       statement: statement ?? this.statement,
       claimType: claimType ?? this.claimType,
       subject: subject ?? this.subject,
@@ -175,32 +188,51 @@ class Claim {
     );
   }
 
-  /// Check if claim is verified.
-  bool get isVerified => verificationStatus == VerificationStatus.verified;
-
   /// Check if claim is supported.
   bool get isSupported =>
-      verificationResult?.verdict == VerificationVerdict.supported;
+      verificationStatus == ClaimStatus.supported;
 
-  /// Check if claim is refuted.
-  bool get isRefuted =>
-      verificationResult?.verdict == VerificationVerdict.refuted;
+  /// Check if claim is conflicting.
+  bool get isConflicting =>
+      verificationStatus == ClaimStatus.conflicting;
 
   @override
-  String toString() => 'Claim($claimId, status: $verificationStatus)';
+  String toString() => 'VerifiableClaim($claimId, status: $verificationStatus)';
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) || other is Claim && claimId == other.claimId;
+      identical(this, other) ||
+      other is VerifiableClaim && claimId == other.claimId;
 
   @override
   int get hashCode => claimId.hashCode;
 }
 
-/// Claim types.
+/// Claim type (aligned with ClaimType from mcp_bundle).
+/// Reference: Design Section 2.15.3
 enum ClaimType {
-  /// Factual assertion (can be verified).
-  factual,
+  // Factual types
+
+  /// General factual claim.
+  fact,
+
+  /// Date/time claim.
+  date,
+
+  /// Monetary amount claim.
+  amount,
+
+  /// Numeric quantity claim.
+  quantity,
+
+  /// Classification claim.
+  category,
+
+  /// Entity reference claim.
+  entity,
+
+  /// Relationship claim.
+  relation,
 
   /// Temporal claim (about when something happened).
   temporal,
@@ -214,44 +246,79 @@ enum ClaimType {
   /// Quantitative claim (about numbers/amounts).
   quantitative,
 
-  /// Opinion (cannot be verified).
+  // Derived types
+
+  /// Derived conclusion.
+  conclusion,
+
+  /// Suggested action.
+  recommendation,
+
+  /// Uncertain claim.
+  speculation,
+
+  /// Observed pattern.
+  observation,
+
+  /// Future prediction.
+  prediction,
+
+  /// Opinion (subjective, cannot be verified).
   opinion,
 
-  /// Hypothetical statement.
+  /// Hypothetical/conditional statement.
   hypothetical;
 
   static ClaimType fromString(String value) {
     return ClaimType.values.firstWhere(
       (e) => e.name == value,
-      orElse: () => ClaimType.factual,
+      orElse: () => ClaimType.fact,
     );
   }
 }
 
-/// Verification status.
-enum VerificationStatus {
+/// Backward compatibility aliases.
+@Deprecated('Use ClaimType instead')
+typedef VerifiableClaimType = ClaimType;
+
+/// Claim status (aligned with ClaimStatus from mcp_bundle).
+/// Reference: Design Section 2.15.3
+enum ClaimStatus {
   /// Pending verification.
   pending,
 
   /// Currently being verified.
   verifying,
 
-  /// Verification complete.
-  verified,
+  /// Validated with evidence.
+  supported,
 
-  /// Unable to verify.
+  /// No supporting evidence.
+  unsupported,
+
+  /// Contradicts existing facts.
+  conflicting,
+
+  /// Some evidence found.
+  partiallySupported,
+
+  /// Cannot be verified.
   unverifiable,
 
-  /// Verification failed (error).
-  failed;
+  /// Explicitly uncertain.
+  speculation;
 
-  static VerificationStatus fromString(String value) {
-    return VerificationStatus.values.firstWhere(
+  static ClaimStatus fromString(String value) {
+    return ClaimStatus.values.firstWhere(
       (e) => e.name == value,
-      orElse: () => VerificationStatus.pending,
+      orElse: () => ClaimStatus.pending,
     );
   }
 }
+
+/// Backward compatibility alias.
+@Deprecated('Use ClaimStatus instead')
+typedef VerificationStatus = ClaimStatus;
 
 /// Verification result.
 class VerificationResult {

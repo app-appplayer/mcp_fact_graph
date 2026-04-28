@@ -10,11 +10,16 @@ class Entity {
   /// Unique entity identifier.
   final String entityId;
 
-  /// Entity type (person, organization, place, thing, etc.).
-  final String entityType;
+  /// Workspace identifier for multi-tenant isolation.
+  final String workspaceId;
 
-  /// Canonical name.
-  final String name;
+  /// Entity type (person, organization, place, thing, etc.).
+  /// Reference: Design Section 2.4 - type.
+  final String type;
+
+  /// Primary display name.
+  /// Reference: Design Section 2.4 - canonicalName.
+  final String canonicalName;
 
   /// Alternative names/aliases.
   final List<String> aliases;
@@ -27,9 +32,6 @@ class Entity {
 
   /// Candidate IDs that contributed to this entity.
   final List<String> sourceCandidateIds;
-
-  /// Related entities (entityId -> relation type).
-  final Map<String, String> relations;
 
   /// When this entity was created.
   final DateTime createdAt;
@@ -45,13 +47,13 @@ class Entity {
 
   const Entity({
     required this.entityId,
-    required this.entityType,
-    required this.name,
+    required this.workspaceId,
+    required this.type,
+    required this.canonicalName,
     this.aliases = const [],
     this.attributes = const {},
     this.status = EntityStatus.active,
     this.sourceCandidateIds = const [],
-    this.relations = const {},
     required this.createdAt,
     required this.updatedAt,
     this.confidence = 1.0,
@@ -61,8 +63,9 @@ class Entity {
   factory Entity.fromJson(Map<String, dynamic> json) {
     return Entity(
       entityId: json['entityId'] as String? ?? '',
-      entityType: json['entityType'] as String? ?? '',
-      name: json['name'] as String? ?? '',
+      workspaceId: json['workspaceId'] as String? ?? 'default',
+      type: json['type'] as String? ?? '',
+      canonicalName: json['canonicalName'] as String? ?? '',
       aliases: (json['aliases'] as List<dynamic>?)
               ?.map((e) => e as String)
               .toList() ??
@@ -73,9 +76,6 @@ class Entity {
               ?.map((e) => e as String)
               .toList() ??
           [],
-      relations: (json['relations'] as Map<String, dynamic>?)
-              ?.map((k, v) => MapEntry(k, v as String)) ??
-          {},
       createdAt: json['createdAt'] != null
           ? DateTime.parse(json['createdAt'] as String)
           : DateTime.now(),
@@ -90,14 +90,14 @@ class Entity {
   Map<String, dynamic> toJson() {
     return {
       'entityId': entityId,
-      'entityType': entityType,
-      'name': name,
+      'workspaceId': workspaceId,
+      'type': type,
+      'canonicalName': canonicalName,
       if (aliases.isNotEmpty) 'aliases': aliases,
       if (attributes.isNotEmpty) 'attributes': attributes,
       'status': status.name,
       if (sourceCandidateIds.isNotEmpty)
         'sourceCandidateIds': sourceCandidateIds,
-      if (relations.isNotEmpty) 'relations': relations,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
       'confidence': confidence,
@@ -107,13 +107,13 @@ class Entity {
 
   Entity copyWith({
     String? entityId,
-    String? entityType,
-    String? name,
+    String? workspaceId,
+    String? type,
+    String? canonicalName,
     List<String>? aliases,
     Map<String, dynamic>? attributes,
     EntityStatus? status,
     List<String>? sourceCandidateIds,
-    Map<String, String>? relations,
     DateTime? createdAt,
     DateTime? updatedAt,
     double? confidence,
@@ -121,13 +121,13 @@ class Entity {
   }) {
     return Entity(
       entityId: entityId ?? this.entityId,
-      entityType: entityType ?? this.entityType,
-      name: name ?? this.name,
+      workspaceId: workspaceId ?? this.workspaceId,
+      type: type ?? this.type,
+      canonicalName: canonicalName ?? this.canonicalName,
       aliases: aliases ?? this.aliases,
       attributes: attributes ?? this.attributes,
       status: status ?? this.status,
       sourceCandidateIds: sourceCandidateIds ?? this.sourceCandidateIds,
-      relations: relations ?? this.relations,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       confidence: confidence ?? this.confidence,
@@ -138,12 +138,12 @@ class Entity {
   /// Check if entity matches a name or alias.
   bool matchesName(String query) {
     final lowerQuery = query.toLowerCase();
-    if (name.toLowerCase().contains(lowerQuery)) return true;
+    if (canonicalName.toLowerCase().contains(lowerQuery)) return true;
     return aliases.any((a) => a.toLowerCase().contains(lowerQuery));
   }
 
   @override
-  String toString() => 'Entity($entityId, type: $entityType, name: $name)';
+  String toString() => 'Entity($entityId, type: $type, name: $canonicalName)';
 
   @override
   bool operator ==(Object other) =>
@@ -174,3 +174,5 @@ enum EntityStatus {
     );
   }
 }
+
+// EntityRelation removed per design §2.5 - use Relation entity instead.

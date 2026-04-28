@@ -1,47 +1,48 @@
 /// SummaryNode entity for L2 ContextOps Layer.
 ///
-/// Represents cumulative summaries in a hierarchical structure.
+/// Represents cumulative summaries stored as graph nodes.
+/// Reference: 03-data-model-specification.md Section 2.15.1
 library;
 
-/// SummaryNode represents a hierarchical summary unit.
+/// SummaryNode represents a cumulative summary stored as a graph node.
 ///
-/// Summaries are organized in a tree structure for efficient retrieval.
+/// Supports reproducibility via asOf and policyVersion fields.
 class SummaryNode {
   /// Unique summary node identifier.
-  final String nodeId;
+  final String summaryId;
 
-  /// Summary type/category.
-  final SummaryType summaryType;
+  /// Workspace identifier for multi-tenant isolation.
+  final String workspaceId;
 
-  /// Summary title.
-  final String title;
+  /// Summary text content.
+  /// Reference: Design Section 2.15.1 - summaryText.
+  final String summaryText;
 
-  /// Summary content.
-  final String content;
+  /// Fact IDs covered by this summary.
+  /// Reference: Design Section 2.15.1 - coversFactIds.
+  final List<String> coversFactIds;
 
-  /// Summary scope/topic.
-  final String? scope;
+  /// Point-in-time snapshot for reproducibility.
+  /// Reference: Design Section 2.15.1 - enables time-travel queries.
+  final DateTime asOf;
 
-  /// Parent node ID (for hierarchy).
-  final String? parentId;
+  /// Policy version used for generating this summary.
+  /// Reference: Design Section 2.15.1 - enables reproducibility.
+  final String policyVersion;
 
-  /// Child node IDs.
-  final List<String> childIds;
+  /// ID of the summary this supersedes (latest summary pointer).
+  /// Reference: Design Section 2.15.1 - supports incremental updates.
+  final String? supersedes;
 
-  /// Source event IDs included in this summary.
-  final List<String> sourceEventIds;
+  /// Summary status.
+  final SummaryStatus status;
 
-  /// Source entity IDs referenced.
-  final List<String> sourceEntityIds;
+  /// Summary scope.
+  /// Reference: Design Section 2.15.1 - SummaryScope.
+  final SummaryScope scope;
 
-  /// Time period covered.
-  final SummaryPeriod? period;
-
-  /// Summary level in hierarchy (0 = leaf).
-  final int level;
-
-  /// Token count of content.
-  final int tokenCount;
+  /// Additional metadata.
+  final Map<String, dynamic>? metadata;
 
   /// When this summary was created.
   final DateTime createdAt;
@@ -49,212 +50,180 @@ class SummaryNode {
   /// When this summary was last updated.
   final DateTime updatedAt;
 
-  /// Summary status.
-  final SummaryStatus status;
-
-  /// Version number.
-  final int version;
-
-  /// Additional metadata.
-  final Map<String, dynamic> metadata;
-
   const SummaryNode({
-    required this.nodeId,
-    required this.summaryType,
-    required this.title,
-    required this.content,
-    this.scope,
-    this.parentId,
-    this.childIds = const [],
-    this.sourceEventIds = const [],
-    this.sourceEntityIds = const [],
-    this.period,
-    this.level = 0,
-    this.tokenCount = 0,
+    required this.summaryId,
+    required this.workspaceId,
+    required this.summaryText,
+    this.coversFactIds = const [],
+    required this.asOf,
+    required this.policyVersion,
+    this.supersedes,
+    this.status = SummaryStatus.active,
+    required this.scope,
+    this.metadata,
     required this.createdAt,
     required this.updatedAt,
-    this.status = SummaryStatus.current,
-    this.version = 1,
-    this.metadata = const {},
   });
 
   factory SummaryNode.fromJson(Map<String, dynamic> json) {
     return SummaryNode(
-      nodeId: json['nodeId'] as String? ?? '',
-      summaryType:
-          SummaryType.fromString(json['summaryType'] as String? ?? 'general'),
-      title: json['title'] as String? ?? '',
-      content: json['content'] as String? ?? '',
-      scope: json['scope'] as String?,
-      parentId: json['parentId'] as String?,
-      childIds: (json['childIds'] as List<dynamic>?)
+      summaryId: json['summaryId'] as String? ?? '',
+      workspaceId: json['workspaceId'] as String? ?? 'default',
+      summaryText: json['summaryText'] as String? ?? '',
+      coversFactIds: (json['coversFactIds'] as List<dynamic>?)
               ?.map((e) => e as String)
               .toList() ??
           [],
-      sourceEventIds: (json['sourceEventIds'] as List<dynamic>?)
-              ?.map((e) => e as String)
-              .toList() ??
-          [],
-      sourceEntityIds: (json['sourceEntityIds'] as List<dynamic>?)
-              ?.map((e) => e as String)
-              .toList() ??
-          [],
-      period: json['period'] != null
-          ? SummaryPeriod.fromJson(json['period'] as Map<String, dynamic>)
-          : null,
-      level: json['level'] as int? ?? 0,
-      tokenCount: json['tokenCount'] as int? ?? 0,
+      asOf: json['asOf'] != null
+          ? DateTime.parse(json['asOf'] as String)
+          : DateTime.now(),
+      policyVersion: json['policyVersion'] as String? ?? '1.0.0',
+      supersedes: json['supersedes'] as String?,
+      status:
+          SummaryStatus.fromString(json['status'] as String? ?? 'active'),
+      scope: json['scope'] != null
+          ? SummaryScope.fromJson(json['scope'] as Map<String, dynamic>)
+          : const SummaryScope(scopeType: 'period'),
+      metadata: json['metadata'] as Map<String, dynamic>?,
       createdAt: json['createdAt'] != null
           ? DateTime.parse(json['createdAt'] as String)
           : DateTime.now(),
       updatedAt: json['updatedAt'] != null
           ? DateTime.parse(json['updatedAt'] as String)
           : DateTime.now(),
-      status:
-          SummaryStatus.fromString(json['status'] as String? ?? 'current'),
-      version: json['version'] as int? ?? 1,
-      metadata: json['metadata'] as Map<String, dynamic>? ?? {},
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
-      'nodeId': nodeId,
-      'summaryType': summaryType.name,
-      'title': title,
-      'content': content,
-      if (scope != null) 'scope': scope,
-      if (parentId != null) 'parentId': parentId,
-      if (childIds.isNotEmpty) 'childIds': childIds,
-      if (sourceEventIds.isNotEmpty) 'sourceEventIds': sourceEventIds,
-      if (sourceEntityIds.isNotEmpty) 'sourceEntityIds': sourceEntityIds,
-      if (period != null) 'period': period!.toJson(),
-      'level': level,
-      'tokenCount': tokenCount,
+      'summaryId': summaryId,
+      'workspaceId': workspaceId,
+      'summaryText': summaryText,
+      if (coversFactIds.isNotEmpty) 'coversFactIds': coversFactIds,
+      'asOf': asOf.toIso8601String(),
+      'policyVersion': policyVersion,
+      if (supersedes != null) 'supersedes': supersedes,
+      'status': status.name,
+      'scope': scope.toJson(),
+      if (metadata != null && metadata!.isNotEmpty) 'metadata': metadata,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
-      'status': status.name,
-      'version': version,
-      if (metadata.isNotEmpty) 'metadata': metadata,
     };
   }
 
   SummaryNode copyWith({
-    String? nodeId,
-    SummaryType? summaryType,
-    String? title,
-    String? content,
-    String? scope,
-    String? parentId,
-    List<String>? childIds,
-    List<String>? sourceEventIds,
-    List<String>? sourceEntityIds,
-    SummaryPeriod? period,
-    int? level,
-    int? tokenCount,
+    String? summaryId,
+    String? workspaceId,
+    String? summaryText,
+    List<String>? coversFactIds,
+    DateTime? asOf,
+    String? policyVersion,
+    String? supersedes,
+    SummaryStatus? status,
+    SummaryScope? scope,
+    Map<String, dynamic>? metadata,
     DateTime? createdAt,
     DateTime? updatedAt,
-    SummaryStatus? status,
-    int? version,
-    Map<String, dynamic>? metadata,
   }) {
     return SummaryNode(
-      nodeId: nodeId ?? this.nodeId,
-      summaryType: summaryType ?? this.summaryType,
-      title: title ?? this.title,
-      content: content ?? this.content,
+      summaryId: summaryId ?? this.summaryId,
+      workspaceId: workspaceId ?? this.workspaceId,
+      summaryText: summaryText ?? this.summaryText,
+      coversFactIds: coversFactIds ?? this.coversFactIds,
+      asOf: asOf ?? this.asOf,
+      policyVersion: policyVersion ?? this.policyVersion,
+      supersedes: supersedes ?? this.supersedes,
+      status: status ?? this.status,
       scope: scope ?? this.scope,
-      parentId: parentId ?? this.parentId,
-      childIds: childIds ?? this.childIds,
-      sourceEventIds: sourceEventIds ?? this.sourceEventIds,
-      sourceEntityIds: sourceEntityIds ?? this.sourceEntityIds,
-      period: period ?? this.period,
-      level: level ?? this.level,
-      tokenCount: tokenCount ?? this.tokenCount,
+      metadata: metadata ?? this.metadata,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
-      status: status ?? this.status,
-      version: version ?? this.version,
-      metadata: metadata ?? this.metadata,
     );
   }
 
-  /// Check if this is a root node.
-  bool get isRoot => parentId == null;
-
-  /// Check if this is a leaf node.
-  bool get isLeaf => childIds.isEmpty;
-
   @override
   String toString() =>
-      'SummaryNode($nodeId, type: $summaryType, level: $level)';
+      'SummaryNode($summaryId, scope: ${scope.scopeType})';
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is SummaryNode && nodeId == other.nodeId;
+      other is SummaryNode && summaryId == other.summaryId;
 
   @override
-  int get hashCode => nodeId.hashCode;
-}
-
-/// Summary types.
-enum SummaryType {
-  /// General purpose summary.
-  general,
-
-  /// Daily summary.
-  daily,
-
-  /// Weekly summary.
-  weekly,
-
-  /// Monthly summary.
-  monthly,
-
-  /// Topic-based summary.
-  topical,
-
-  /// Entity-centric summary.
-  entity,
-
-  /// Project/task summary.
-  project,
-
-  /// Conversation summary.
-  conversation;
-
-  static SummaryType fromString(String value) {
-    return SummaryType.values.firstWhere(
-      (e) => e.name == value,
-      orElse: () => SummaryType.general,
-    );
-  }
+  int get hashCode => summaryId.hashCode;
 }
 
 /// Summary status.
+/// Reference: Design Section 2.15.1 - created | active | stale | refreshFail | archived
 enum SummaryStatus {
-  /// Current and valid.
-  current,
+  /// Newly created, generation pending.
+  created,
 
-  /// Needs refresh.
+  /// Current and valid.
+  active,
+
+  /// Source data changed, refresh needed.
   stale,
 
-  /// Being updated.
-  updating,
+  /// Refresh attempted but failed.
+  refreshFail,
 
-  /// Archived.
+  /// No longer maintained.
   archived;
 
   static SummaryStatus fromString(String value) {
     return SummaryStatus.values.firstWhere(
       (e) => e.name == value,
-      orElse: () => SummaryStatus.current,
+      orElse: () => SummaryStatus.active,
     );
   }
 }
 
-/// Summary time period.
+/// Structured summary scope.
+/// Reference: Design Section 2.15.1 - SummaryScope
+class SummaryScope {
+  /// Scope type (period, entity, project, topic).
+  final String scopeType;
+
+  /// Entity ID (if scoped to specific entity).
+  final String? entityId;
+
+  /// Time period (if scoped to time period).
+  final SummaryPeriod? period;
+
+  /// Topic/category ID (if scoped to topic).
+  final String? topicId;
+
+  const SummaryScope({
+    required this.scopeType,
+    this.entityId,
+    this.period,
+    this.topicId,
+  });
+
+  factory SummaryScope.fromJson(Map<String, dynamic> json) {
+    return SummaryScope(
+      scopeType: json['scopeType'] as String? ?? 'period',
+      entityId: json['entityId'] as String?,
+      period: json['period'] != null
+          ? SummaryPeriod.fromJson(json['period'] as Map<String, dynamic>)
+          : null,
+      topicId: json['topicId'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'scopeType': scopeType,
+      if (entityId != null) 'entityId': entityId,
+      if (period != null) 'period': period!.toJson(),
+      if (topicId != null) 'topicId': topicId,
+    };
+  }
+}
+
+/// Simple period for summary time range.
 class SummaryPeriod {
   /// Period start.
   final DateTime start;
@@ -262,13 +231,9 @@ class SummaryPeriod {
   /// Period end.
   final DateTime end;
 
-  /// Period granularity.
-  final PeriodGranularity granularity;
-
   const SummaryPeriod({
     required this.start,
     required this.end,
-    this.granularity = PeriodGranularity.custom,
   });
 
   factory SummaryPeriod.fromJson(Map<String, dynamic> json) {
@@ -279,8 +244,6 @@ class SummaryPeriod {
       end: json['end'] != null
           ? DateTime.parse(json['end'] as String)
           : DateTime.now(),
-      granularity: PeriodGranularity.fromString(
-          json['granularity'] as String? ?? 'custom'),
     );
   }
 
@@ -288,28 +251,9 @@ class SummaryPeriod {
     return {
       'start': start.toIso8601String(),
       'end': end.toIso8601String(),
-      'granularity': granularity.name,
     };
   }
 
   /// Duration of the period.
   Duration get duration => end.difference(start);
-}
-
-/// Period granularity levels.
-enum PeriodGranularity {
-  hourly,
-  daily,
-  weekly,
-  monthly,
-  quarterly,
-  yearly,
-  custom;
-
-  static PeriodGranularity fromString(String value) {
-    return PeriodGranularity.values.firstWhere(
-      (e) => e.name == value,
-      orElse: () => PeriodGranularity.custom,
-    );
-  }
 }
