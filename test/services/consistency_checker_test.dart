@@ -92,5 +92,40 @@ void main() {
       await storage.facts.saveFact(makeFact(id: 'f-1'));
       expect(await off.check(makeFact(id: 'f-1')), isNull);
     });
+
+    test('same-day distinct microseconds do not conflict (overlap precision)',
+        () async {
+      // Two facts on the same calendar day but a microsecond apart should
+      // NOT overlap under the microsecond-precision rule. Under the prior
+      // calendar-day reduction this pair would have been flagged as a
+      // tripleMismatch despite the distinct timestamps.
+      await storage.facts.saveFact(makeFact(
+        id: 'f-1',
+        payload: {'amount': 1000},
+        occurredAt: DateTime(2026, 4, 14, 9, 0, 0, 0, 0),
+      ));
+      final report = await checker.check(makeFact(
+        id: 'f-2',
+        payload: {'amount': 2000},
+        occurredAt: DateTime(2026, 4, 14, 9, 0, 0, 0, 1),
+      ));
+      expect(report, isNull);
+    });
+
+    test('exact-microsecond match still conflicts', () async {
+      final t = DateTime(2026, 4, 14, 9, 0, 0, 0, 42);
+      await storage.facts.saveFact(makeFact(
+        id: 'f-1',
+        payload: {'amount': 1000},
+        occurredAt: t,
+      ));
+      final report = await checker.check(makeFact(
+        id: 'f-2',
+        payload: {'amount': 2000},
+        occurredAt: t,
+      ));
+      expect(report, isNotNull);
+      expect(report!.kind, ConflictKind.tripleMismatch);
+    });
   });
 }

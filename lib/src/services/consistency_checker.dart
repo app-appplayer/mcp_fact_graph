@@ -126,13 +126,18 @@ class ConsistencyChecker {
   }
 
   /// Interpret both facts as point-in-time occurrences and flag
-  /// overlap when either shares the same `occurredAt` instant.
+  /// overlap iff their `occurredAt` instants match to the microsecond.
+  ///
+  /// The in-memory model stores a single `occurredAt` timestamp per fact.
+  /// Two records are treated as overlapping only when those instants are
+  /// equal — so a steady stream of point events at distinct timestamps
+  /// does not trigger spurious triple-mismatch conflicts. Calendar-day
+  /// reduction (the previous heuristic) caused every same-day, same
+  /// (entity, factType) record to collide regardless of the actual time
+  /// gap, which made point-period lifecycle records (e.g., FlowBrain
+  /// `agent.fork.assigned` mirrors) impossible to ingest with the
+  /// consistency checker enabled.
   bool _periodsOverlap(Fact a, Fact b) {
-    // The in-memory model stores a single `occurredAt` timestamp
-    // per fact; treat two records as overlapping iff they fall on
-    // the same calendar day. This is conservative but deterministic.
-    final ad = DateTime(a.occurredAt.year, a.occurredAt.month, a.occurredAt.day);
-    final bd = DateTime(b.occurredAt.year, b.occurredAt.month, b.occurredAt.day);
-    return ad.isAtSameMomentAs(bd);
+    return a.occurredAt.isAtSameMomentAs(b.occurredAt);
   }
 }

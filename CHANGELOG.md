@@ -1,3 +1,13 @@
+## [0.2.1] - 2026-05-04 - Microsecond consistency overlap
+
+### Fixed
+- `ConsistencyChecker._periodsOverlap` now flags overlap iff two facts share the same `occurredAt` instant to the microsecond. Previously the helper reduced both timestamps to calendar-day precision, which caused every same-day, same `(entity, factType)` record to be reported as a triple-mismatch conflict regardless of the actual time gap. Point-in-time lifecycle records (e.g., `agent.fork.assigned` mirrors emitted by host runtimes) can now be ingested with `enableConsistencyCheck: true` without spurious conflicts.
+
+### Dependencies
+- `mcp_bundle: ^0.3.1` — additive; no behavioral change for existing call sites.
+
+---
+
 ## [0.2.0] - 2026-04-28 - Standard Ports & Domain Expansion
 
 ### Added

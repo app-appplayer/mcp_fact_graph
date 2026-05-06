@@ -1,6 +1,6 @@
 name: mcp_fact_graph
 description: Temporal knowledge graph with evidence-based fact management, candidate confirmation, and automatic summarization for the MCP ecosystem.
-version: 0.2.0
+version: 0.2.1
 homepage: https://app-appplayer.github.io/makemind
 repository: https://github.com/app-appplayer/mcp_fact_graph
 issue_tracker: https://github.com/app-appplayer/mcp_fact_graph/issues
@@ -18,7 +18,7 @@ environment:
 dependencies:
   collection: ^1.18.0
   meta: ^1.9.0
-  mcp_bundle: ^0.3.0
+  mcp_bundle: ^0.3.1
 
 dev_dependencies:
   lints: ^3.0.0
