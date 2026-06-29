@@ -76,15 +76,25 @@ export 'src/services/candidate_deduplicator.dart';
 export 'src/exceptions/fact_conflict_exception.dart';
 
 // =============================================================================
-// Internal Ports — NOT re-exported
+// Storage ports — re-exported for persistence injection
 // =============================================================================
-// Per REDESIGN-PLAN.md §3.4 / §8 OQ5 recommendation (a), the low-level
-// storage ports and LLM port are package-internal. The 17 `*StoragePort`
-// interfaces, `UnifiedStoragePort`, `LlmPort`, and the local ingestion
-// `EvidencePort` / `FragmentExtractorPort` are reachable only via the
-// standard adapters and `FactGraphRuntime`. Tests that need direct
-// access should import the `src/ports/…` files by path — intentionally
-// awkward to discourage new consumer-facing usage.
+// The low-level `*StoragePort` interfaces and their `*Query` value types are
+// the injection seam of the primary `FactGraphRuntime(...)` constructor: a
+// host can supply persistent (disk-backed) implementations instead of the
+// default in-memory stack. They are re-exported here so persistence adapters
+// can be authored outside the package without path-importing `src/`.
+//
+// `UnifiedStoragePort`, `LlmPort`, and the local ingestion `EvidencePort` /
+// `FragmentExtractorPort` remain package-internal — reach them via the
+// standard adapters and `FactGraphRuntime`.
+//
+// The five `*Query` value types whose names also exist in `mcp_bundle`
+// (ClaimQuery / EntityQuery / FactQuery / PatternQuery / RunQuery) are hidden
+// here so consumers that depend on both packages (e.g. `mcp_knowledge`) don't
+// hit ambiguous-export errors. They remain reachable by path-importing
+// `src/ports/storage_port.dart` when a persistence adapter needs them.
+export 'src/ports/storage_port.dart'
+    hide ClaimQuery, EntityQuery, FactQuery, PatternQuery, RunQuery;
 
 // =============================================================================
 // Phase 2 — Standard capability adapters + FactGraphRuntime
@@ -124,3 +134,10 @@ export 'src/query/query_result.dart';
 
 // Storage
 export 'src/storage/graph_storage.dart';
+
+// In-memory storage stack — re-exported as the subclassing base for
+// out-of-package persistence adapters. A persistent storage port can
+// `extends InMemory*Storage`, override only the mutating methods to flush
+// to disk, and reuse all query/index logic unchanged. `InMemoryStorageContainer`
+// is the matching default stack used by `FactGraphRuntime.inMemory`.
+export 'src/storage/in_memory_storage.dart';

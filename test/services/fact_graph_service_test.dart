@@ -2,8 +2,8 @@
 
 import 'package:test/test.dart';
 import 'package:mcp_fact_graph/mcp_fact_graph.dart';
-// Internal ports — accessed via src path since they are not barrel-exported.
 import 'package:mcp_fact_graph/src/ports/storage_port.dart';
+// Internal ports — accessed via src path since they are not barrel-exported.
 import 'package:mcp_fact_graph/src/ports/llm_port.dart';
 
 // Mock CandidateStoragePort

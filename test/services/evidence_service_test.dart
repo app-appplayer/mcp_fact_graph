@@ -3,7 +3,6 @@
 import 'package:test/test.dart';
 import 'package:mcp_fact_graph/mcp_fact_graph.dart';
 // Internal contracts — accessed via src path since they are not barrel-exported.
-import 'package:mcp_fact_graph/src/ports/storage_port.dart';
 // Ingestion contracts relocated from `src/ports/evidence_port.dart`
 // to `src/services/ingestion_source.dart` in Phase 2.1.
 import 'package:mcp_fact_graph/src/services/ingestion_source.dart';

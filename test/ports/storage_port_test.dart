@@ -2,8 +2,8 @@
 
 import 'package:test/test.dart';
 import 'package:mcp_fact_graph/mcp_fact_graph.dart';
-// Internal port — accessed via src path since it is not barrel-exported.
 import 'package:mcp_fact_graph/src/ports/storage_port.dart';
+// Internal port — accessed via src path since it is not barrel-exported.
 
 void main() {
   group('EvidenceQuery', () {

@@ -2,7 +2,6 @@
 library;
 
 import 'package:mcp_fact_graph/mcp_fact_graph.dart';
-import 'package:mcp_fact_graph/src/storage/in_memory_storage.dart';
 import 'package:test/test.dart';
 
 void main() {

@@ -1,3 +1,13 @@
+## [0.2.3] - 2026-06-30 - Storage-port injection seam for persistence
+
+### Added
+- The `*StoragePort` interfaces are now re-exported from the public barrel (`mcp_fact_graph.dart`). They were the injection seam of the primary `FactGraphRuntime(...)` constructor all along — exporting them lets a host supply persistent (disk-backed) storage implementations instead of the default in-memory stack, without path-importing `src/`.
+- The in-memory storage stack (`InMemory*Storage` + `InMemoryStorageContainer`) is re-exported as the subclassing base for out-of-package persistence adapters: a persistent port can `extends InMemory*Storage`, override only the mutating methods to flush to disk, and reuse all query/index logic unchanged.
+
+### Notes
+- Backward-compatible, additive only — no behavioral or signature changes to existing types. Consumers on `^0.2.2` resolve `0.2.3` with no constraint changes.
+- The five `*Query` value types whose names also exist in `mcp_bundle` (`ClaimQuery`, `EntityQuery`, `FactQuery`, `PatternQuery`, `RunQuery`) are intentionally hidden from the barrel to avoid ambiguous-export errors in consumers that depend on both packages (e.g. `mcp_knowledge`). They remain reachable by path-importing `src/ports/storage_port.dart`.
+
 ## [0.2.2] - 2026-05-23 - mcp_bundle 0.4.0 cascade
 
 ### Changed (cascade)
