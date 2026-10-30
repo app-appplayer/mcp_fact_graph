@@ -112,6 +112,7 @@ export 'src/adapters/standard/facts_port_adapter.dart';
 export 'src/adapters/standard/claims_port_adapter.dart';
 export 'src/adapters/standard/entities_port_adapter.dart';
 export 'src/adapters/standard/evidence_port_adapter.dart';
+export 'src/adapters/standard/llm_evidence_port.dart';
 export 'src/adapters/standard/candidates_port_adapter.dart';
 export 'src/adapters/standard/patterns_port_adapter.dart';
 export 'src/adapters/standard/summaries_port_adapter.dart';

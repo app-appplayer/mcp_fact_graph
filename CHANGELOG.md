@@ -1,3 +1,17 @@
+## [0.2.4] - 2026-10-30 - Attribution, retraction, point-in-time queries, LLM evidence extraction, unique ids
+
+### Added
+- `Fact.actor`, `Fact.retractedAt`, `Fact.retractedBy` (optional, omitted from JSON when null) and `Fact.isRetracted`. A retracted fact keeps its evidence and candidate links and its stored `status`; `FactStatus` is unchanged.
+- `FactGraphService.retractFact(factId, {retractedBy, at})` withdraws a fact without deleting it; `confirmCandidate(..., {actor})` records who confirmed.
+- `FactQuery.asOf` returns the facts as they stood at an instant (created by then, not retracted by then, not superseded by then). Without `asOf`, retracted facts are left out unless `includeRetracted: true`. `InMemoryFactStorage` implements the rule; a storage that subclasses it inherits it.
+
+- `LlmEvidencePort` (`bundle.EvidencePort`): an injected `LlmPort` splits raw text into evidence units with `kind` (`decision|task|question|state|fact|insight`), `verbatim`, `emphasis`, `confidence` and `entityHints`. A `verbatim` claim is kept only when the words are in the source, and the position is taken from the source. When the call fails or the reply is unreadable it falls back to `EvidencePortAdapter` and reports the reason through `onFallback`. Needs the `EvidenceFragment` fields added in `mcp_bundle` 0.4.12.
+
+### Fixed
+- Ids made in the same clock tick repeated, so a store replaced the earlier candidate, fact or evidence without an error (a batch of three candidates left two). All services and port adapters now draw ids from one process-wide generator, `<prefix>_<microseconds>_<sequence>`; the `cand_`/`fact_`/`ev_` prefixes are unchanged.
+- `FactsPortAdapter.queryFacts` ignored `mcp_bundle`'s `FactQuery.asOf`; it now passes it through.
+- `ConsistencyChecker` and `PatternMiner` skip retracted facts like archived ones.
+
 ## [0.2.3] - 2026-06-30 - Storage-port injection seam for persistence
 
 ### Added

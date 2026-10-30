@@ -54,6 +54,7 @@ class FactsPortAdapter implements bundle.FactsPort {
         toDate: range?.end,
         entityIds: query.entityId == null ? null : [query.entityId!],
         limit: query.limit,
+        asOf: query.asOf,
       );
       allResults.addAll(await _factGraphService.queryFacts(internal));
     } else {
@@ -65,6 +66,7 @@ class FactsPortAdapter implements bundle.FactsPort {
           toDate: range?.end,
           entityIds: query.entityId == null ? null : [query.entityId!],
           limit: query.limit,
+          asOf: query.asOf,
         );
         allResults.addAll(await _factGraphService.queryFacts(internal));
         if (query.limit != null && allResults.length >= query.limit!) {

@@ -11,6 +11,7 @@ import '../../domain/entities/entity.dart';
 import '../../domain/entities/relation.dart';
 import '../../ports/storage_port.dart' as local;
 import '../../services/fact_graph_service.dart';
+import '../../services/id_generator.dart';
 
 /// Implements `bundle.EntitiesPort` on top of
 /// `FactGraphService` + `EntityStoragePort` + `RelationStoragePort`.
@@ -166,8 +167,5 @@ class EntitiesPortAdapter implements bundle.EntitiesPort {
     );
   }
 
-  String _generateId(String prefix) {
-    final ts = DateTime.now().microsecondsSinceEpoch;
-    return '${prefix}_${ts}';
-  }
+  String _generateId(String prefix) => generateId(prefix);
 }

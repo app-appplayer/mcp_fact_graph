@@ -9,6 +9,7 @@ import '../domain/entities/claim.dart';
 import '../domain/entities/fact.dart';
 import '../ports/storage_port.dart';
 import '../ports/llm_port.dart';
+import 'id_generator.dart';
 
 /// Service for L2 ContextOps Layer operations.
 class ContextService {
@@ -299,9 +300,5 @@ class ContextService {
     return (text.length / 4).ceil();
   }
 
-  String _generateId(String prefix) {
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final random = timestamp.hashCode.abs() % 10000;
-    return '${prefix}_${timestamp}_$random';
-  }
+  String _generateId(String prefix) => generateId(prefix);
 }

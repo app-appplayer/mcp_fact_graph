@@ -8,8 +8,8 @@ A temporal knowledge graph for evidence-based fact management with candidates, s
 
 A 4-layer model:
 
-- **L0 Evidence** — raw fragments and evidence ingested from sources.
-- **L1 FactGraph** — entities, candidates, facts, relations, fact clusters, classifications, fact policies, automations, runs, artifacts.
+- **L0 Evidence** — raw fragments and evidence ingested from sources; `LlmEvidencePort` splits raw text into typed evidence units (decision, task, question, state, fact, insight) with an injected `LlmPort`.
+- **L1 FactGraph** — entities, candidates, facts (who confirmed them, retraction that keeps the provenance, point-in-time queries with `asOf`), relations, fact clusters, classifications, fact policies, automations, runs, artifacts.
 - **L2 ContextOps** — context bundles, summaries, claims, response validation.
 - **L3 SkillOps** — patterns, skills, rubrics, evaluation runs.
 

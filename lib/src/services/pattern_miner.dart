@@ -20,6 +20,7 @@ import 'package:mcp_bundle/mcp_bundle.dart' as bundle;
 
 import '../domain/entities/fact.dart';
 import '../ports/storage_port.dart';
+import 'id_generator.dart';
 
 /// L0 pattern miner for the FactGraph layer.
 class PatternMiner {
@@ -274,7 +275,10 @@ class PatternMiner {
       workspaceId: workspaceId,
       fromDate: fromDate,
     ));
-    return facts.where((f) => f.status != FactStatus.archived).toList();
+    return facts
+        .where((f) =>
+            f.status != FactStatus.archived && !f.isRetracted)
+        .toList();
   }
 
   /// Confidence formula per spec:
@@ -333,13 +337,7 @@ class PatternMiner {
     return null;
   }
 
-  int _idCounter = 0;
-
-  String _generateId(String prefix) {
-    _idCounter += 1;
-    final ts = DateTime.now().microsecondsSinceEpoch;
-    return '${prefix}_${ts}_$_idCounter';
-  }
+  String _generateId(String prefix) => generateId(prefix);
 }
 
 // ---------------------------------------------------------------------------

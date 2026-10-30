@@ -95,7 +95,9 @@ class ConsistencyChecker {
       );
       for (final sibling in siblings) {
         if (sibling.factId == candidate.factId) continue;
-        if (sibling.status == FactStatus.archived) continue;
+        if (sibling.status == FactStatus.archived || sibling.isRetracted) {
+          continue;
+        }
 
         final siblingJson = _stableJson(sibling.payload);
         if (siblingJson == candidateJson) continue;

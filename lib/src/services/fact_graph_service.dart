@@ -10,6 +10,7 @@ import '../domain/entities/view.dart';
 import '../domain/entities/fragment.dart';
 import '../ports/storage_port.dart';
 import '../ports/llm_port.dart';
+import 'id_generator.dart';
 
 /// Service for L1 FactGraph Layer operations.
 class FactGraphService {
@@ -98,6 +99,7 @@ class FactGraphService {
   Future<ConfirmationResult> confirmCandidate(
     String candidateId, {
     String? policyVersion,
+    String? actor,
   }) async {
     final candidate = await _candidateStorage.getCandidate(candidateId);
     if (candidate == null) {
@@ -109,7 +111,7 @@ class FactGraphService {
     String? entityId;
 
     // Create fact from candidate
-    factId = await _createFactFromCandidate(candidate, policyVersion);
+    factId = await _createFactFromCandidate(candidate, policyVersion, actor);
 
     // Resolve entities if resolver available
     if (_entityResolver != null) {
@@ -184,6 +186,30 @@ class FactGraphService {
     return _factStorage.queryFacts(query);
   }
 
+  /// Withdraw a fact without deleting it.
+  ///
+  /// The fact keeps its evidence and candidate links and stays visible to
+  /// point-in-time queries before [at] (default: now). Retracting a fact that
+  /// is already retracted returns it unchanged.
+  Future<Fact> retractFact(
+    String factId, {
+    String? retractedBy,
+    DateTime? at,
+  }) async {
+    final fact = await _factStorage.getFact(factId);
+    if (fact == null) {
+      throw ArgumentError('Fact not found: $factId');
+    }
+    if (fact.isRetracted) return fact;
+
+    final retracted = fact.copyWith(
+      retractedAt: at ?? DateTime.now(),
+      retractedBy: retractedBy,
+    );
+    await _factStorage.saveFact(retracted);
+    return retracted;
+  }
+
   /// Get facts for entity.
   Future<List<Fact>> getFactsForEntity(String entityId) {
     return _factStorage.getFactsForEntity(entityId);
@@ -255,6 +281,7 @@ class FactGraphService {
   Future<String> _createFactFromCandidate(
     Candidate candidate,
     String? policyVersion,
+    String? actor,
   ) async {
     final factId = _generateId('fact');
     final now = DateTime.now();
@@ -275,6 +302,7 @@ class FactGraphService {
       entityRefs: const [],
       createdAt: now,
       policyVersion: policyVersion,
+      actor: actor,
     );
 
     await _factStorage.saveFact(fact);
@@ -359,11 +387,7 @@ class FactGraphService {
     return fields.values.fold(0.0, (sum, f) => sum + f.confidence) / fields.length;
   }
 
-  String _generateId(String prefix) {
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final random = timestamp.hashCode.abs() % 10000;
-    return '${prefix}_${timestamp}_$random';
-  }
+  String _generateId(String prefix) => generateId(prefix);
 }
 
 /// Result of confirming a candidate.

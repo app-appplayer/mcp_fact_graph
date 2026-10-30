@@ -299,6 +299,23 @@ class InMemoryFactStorage implements FactStoragePort {
   Future<List<Fact>> queryFacts(FactQuery query) async {
     var results = _facts.values.toList();
 
+    final asOf = query.asOf;
+    if (asOf != null) {
+      final superseded = <String>{
+        for (final f in results)
+          if (f.supersedes != null && !f.createdAt.isAfter(asOf))
+            f.supersedes!,
+      };
+      results = results.where((f) {
+        if (f.createdAt.isAfter(asOf)) return false;
+        final retractedAt = f.retractedAt;
+        if (retractedAt != null && !retractedAt.isAfter(asOf)) return false;
+        return !superseded.contains(f.factId);
+      }).toList();
+    } else if (!query.includeRetracted) {
+      results = results.where((f) => !f.isRetracted).toList();
+    }
+
     if (query.workspaceId != null) {
       results = results.where((f) => f.workspaceId == query.workspaceId).toList();
     }

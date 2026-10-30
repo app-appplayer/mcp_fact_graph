@@ -11,6 +11,7 @@ import '../../domain/entities/candidate.dart' as local;
 import '../../ports/storage_port.dart' as storage;
 import '../../services/candidate_deduplicator.dart';
 import '../../services/fact_graph_service.dart';
+import '../../services/id_generator.dart';
 
 /// Implements `bundle.CandidatesPort` on top of `FactGraphService` and
 /// `CandidateStoragePort`.
@@ -212,8 +213,5 @@ class CandidatesPortAdapter implements bundle.CandidatesPort {
     }
   }
 
-  String _generateId(String prefix) {
-    final ts = DateTime.now().microsecondsSinceEpoch;
-    return '${prefix}_${ts}';
-  }
+  String _generateId(String prefix) => generateId(prefix);
 }

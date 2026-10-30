@@ -7,6 +7,7 @@ import '../domain/entities/evidence.dart';
 import '../domain/entities/fragment.dart';
 import '../ports/storage_port.dart';
 import 'ingestion_source.dart';
+import 'id_generator.dart';
 
 /// Service for L0 Evidence Layer operations.
 class EvidenceService {
@@ -136,11 +137,7 @@ class EvidenceService {
     await _storage.deleteEvidence(evidenceId);
   }
 
-  String _generateId(String prefix) {
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final random = timestamp.hashCode.abs() % 10000;
-    return '${prefix}_${timestamp}_$random';
-  }
+  String _generateId(String prefix) => generateId(prefix);
 
   String _computeHash(String content) {
     // Simple hash for now - should use crypto package in production

@@ -10,6 +10,7 @@ import '../domain/entities/evaluation_run.dart';
 import '../domain/entities/fact.dart';
 import '../ports/storage_port.dart';
 import '../ports/llm_port.dart';
+import 'id_generator.dart';
 
 /// Service for L3 SkillOps Layer operations.
 class SkillOpsService {
@@ -351,11 +352,7 @@ Return only a number between 0 and 1.''',
     return 'F';
   }
 
-  String _generateId(String prefix) {
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final random = timestamp.hashCode.abs() % 10000;
-    return '${prefix}_${timestamp}_$random';
-  }
+  String _generateId(String prefix) => generateId(prefix);
 }
 
 /// Pattern match result.

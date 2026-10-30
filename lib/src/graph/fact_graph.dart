@@ -3,6 +3,7 @@ library;
 
 import 'fact_node.dart';
 import 'fact_edge.dart';
+import '../services/id_generator.dart';
 
 /// A graph structure for storing and querying facts.
 class FactGraph {
@@ -332,6 +333,4 @@ class FactGraph {
 }
 
 /// Generate a unique ID.
-String _generateId() {
-  return DateTime.now().microsecondsSinceEpoch.toRadixString(36);
-}
+String _generateId() => generateId('graph');

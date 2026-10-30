@@ -54,6 +54,21 @@ class Fact {
   /// Additional metadata.
   final Map<String, dynamic> metadata;
 
+  /// Who confirmed the fact (person or agent id).
+  final String? actor;
+
+  /// When the fact was withdrawn. A fact with this set is retracted: its
+  /// provenance is kept, [status] is left as it was, and it is left out of
+  /// current results while a point-in-time query before this instant still
+  /// returns it.
+  final DateTime? retractedAt;
+
+  /// Who withdrew the fact.
+  final String? retractedBy;
+
+  /// Whether the fact has been withdrawn.
+  bool get isRetracted => retractedAt != null;
+
   const Fact({
     required this.factId,
     required this.workspaceId,
@@ -70,6 +85,9 @@ class Fact {
     this.supersedes,
     this.factClusterId,
     this.metadata = const {},
+    this.actor,
+    this.retractedAt,
+    this.retractedBy,
   });
 
   factory Fact.fromJson(Map<String, dynamic> json) {
@@ -99,6 +117,11 @@ class Fact {
       supersedes: json['supersedes'] as String?,
       factClusterId: json['factClusterId'] as String?,
       metadata: json['metadata'] as Map<String, dynamic>? ?? {},
+      actor: json['actor'] as String?,
+      retractedAt: json['retractedAt'] != null
+          ? DateTime.parse(json['retractedAt'] as String)
+          : null,
+      retractedBy: json['retractedBy'] as String?,
     );
   }
 
@@ -119,6 +142,9 @@ class Fact {
       if (supersedes != null) 'supersedes': supersedes,
       if (factClusterId != null) 'factClusterId': factClusterId,
       if (metadata.isNotEmpty) 'metadata': metadata,
+      if (actor != null) 'actor': actor,
+      if (retractedAt != null) 'retractedAt': retractedAt!.toIso8601String(),
+      if (retractedBy != null) 'retractedBy': retractedBy,
     };
   }
 
@@ -138,6 +164,9 @@ class Fact {
     String? supersedes,
     String? factClusterId,
     Map<String, dynamic>? metadata,
+    String? actor,
+    DateTime? retractedAt,
+    String? retractedBy,
   }) {
     return Fact(
       factId: factId ?? this.factId,
@@ -155,6 +184,9 @@ class Fact {
       supersedes: supersedes ?? this.supersedes,
       factClusterId: factClusterId ?? this.factClusterId,
       metadata: metadata ?? this.metadata,
+      actor: actor ?? this.actor,
+      retractedAt: retractedAt ?? this.retractedAt,
+      retractedBy: retractedBy ?? this.retractedBy,
     );
   }
 

@@ -238,6 +238,20 @@ class FactQuery {
   /// Offset for pagination.
   final int? offset;
 
+  /// Return the facts as they stood at this instant.
+  ///
+  /// A fact is returned iff `createdAt <= asOf`, it was not retracted at or
+  /// before [asOf], and no fact created at or before [asOf] supersedes it.
+  /// Timestamps decide; the current [Fact.status] does not hide a fact (an
+  /// explicit [status] filter still applies to the stored status). When
+  /// null, retracted facts ([Fact.isRetracted]) are left out unless
+  /// [includeRetracted] is true.
+  final DateTime? asOf;
+
+  /// Include retracted facts in a query without [asOf]. Ignored with
+  /// [asOf], where the retraction time decides.
+  final bool includeRetracted;
+
   const FactQuery({
     this.workspaceId,
     this.factType,
@@ -247,6 +261,8 @@ class FactQuery {
     this.entityIds,
     this.limit,
     this.offset,
+    this.asOf,
+    this.includeRetracted = false,
   });
 }
 
