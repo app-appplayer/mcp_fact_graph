@@ -219,8 +219,9 @@ void main() {
 
       expect(str, contains('AggregateResult'));
       expect(str, contains('count: 5'));
-      expect(str, contains('sum: 50.0'));
-      expect(str, contains('avg: 10.0'));
+      // A whole double prints as `50.0` on the VM and as `50` in JavaScript.
+      expect(str, matches(r'sum: 50(\.0)?,'));
+      expect(str, matches(r'avg: 10(\.0)?\)'));
     });
   });
 
