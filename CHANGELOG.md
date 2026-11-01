@@ -1,3 +1,11 @@
+## [0.2.5] - 2026-11-01 - LLM evidence extraction no longer truncates
+
+### Fixed
+- `LlmEvidencePort` sent no `maxTokens`, so a provider's default output limit (1024 for some) cut the reply and extraction silently fell back to the rule-based port. It now asks for `maxOutputTokens` (default 8192); a reply cut at the limit (`finishReason` `length` or `max_tokens`) falls back with that reason through `onFallback`. Input longer than `maxChunkChars` (default 3000) is split into pieces, each piece is extracted on its own, and the fragments are merged with offsets in the whole text; one failed piece falls back for the whole input.
+
+### Added
+- `LlmEvidencePort` constructor arguments `maxOutputTokens` and `maxChunkChars`.
+
 ## [0.2.4] - 2026-10-30 - Attribution, retraction, point-in-time queries, LLM evidence extraction, unique ids
 
 ### Added

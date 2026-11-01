@@ -30,11 +30,21 @@ class LlmEvidencePort implements bundle.EvidencePort {
   /// log it.
   final void Function(Object reason)? onFallback;
 
+  /// Output limit sent with every request.
+  final int maxOutputTokens;
+
+  /// Longest input, in characters, sent in one call; longer input is split.
+  final int maxChunkChars;
+
   LlmEvidencePort({
     required bundle.LlmPort llm,
     bundle.EvidencePort? fallback,
     this.onFallback,
-  })  : _llm = llm,
+    this.maxOutputTokens = 8192,
+    this.maxChunkChars = 3000,
+  })  : assert(maxOutputTokens > 0),
+        assert(maxChunkChars >= 8),
+        _llm = llm,
         _fallback = fallback ?? EvidencePortAdapter();
 
   @override
@@ -44,29 +54,65 @@ class LlmEvidencePort implements bundle.EvidencePort {
   ) async {
     if (content.trim().isEmpty) return const [];
 
-    final List<dynamic> raw;
+    final out = <bundle.EvidenceFragment>[];
     try {
-      final response = await _llm.complete(
-        bundle.LlmRequest(
-          systemPrompt: _systemPrompt,
-          prompt: 'Source type: $mimeType\n\n$content',
-          temperature: 0,
-          responseFormat: 'json',
-        ),
-      );
-      raw = _decodeUnits(response.content);
+      for (final chunk in _chunks(content)) {
+        final response = await _llm.complete(
+          bundle.LlmRequest(
+            systemPrompt: _systemPrompt,
+            prompt: 'Source type: $mimeType\n\n${chunk.text}',
+            temperature: 0,
+            maxTokens: maxOutputTokens,
+            responseFormat: 'json',
+          ),
+        );
+        final reason = response.finishReason;
+        if (reason == 'length' || reason == 'max_tokens') {
+          throw FormatException(
+              'reply cut off at the output limit ($maxOutputTokens tokens)');
+        }
+        for (final item in _decodeUnits(response.content)) {
+          final fragment = _toFragment(item, content, chunk.start);
+          if (fragment != null) out.add(fragment);
+        }
+      }
     } catch (e) {
       onFallback?.call(e);
       return _fallback.extractFragments(content, mimeType);
     }
-
-    final out = <bundle.EvidenceFragment>[];
-    for (final item in raw) {
-      final fragment = _toFragment(item, content);
-      if (fragment != null) out.add(fragment);
-    }
     return out;
   }
+
+  /// Cuts [content] into pieces of at most [maxChunkChars], preferring a
+  /// blank line, then a line break, then a space.
+  List<({int start, String text})> _chunks(String content) {
+    final chunks = <({int start, String text})>[];
+    var start = 0;
+    while (start < content.length) {
+      var end = start + maxChunkChars;
+      if (end >= content.length) {
+        end = content.length;
+      } else {
+        final floor = start + maxChunkChars ~/ 2;
+        var cut = content.lastIndexOf('\n\n', end - 2);
+        if (cut >= floor) {
+          end = cut + 2;
+        } else if ((cut = content.lastIndexOf('\n', end - 1)) >= floor) {
+          end = cut + 1;
+        } else if ((cut = content.lastIndexOf(' ', end - 1)) >= floor) {
+          end = cut + 1;
+        } else if (_isHighSurrogate(content.codeUnitAt(end - 1))) {
+          end -= 1;
+        }
+      }
+      if (end <= start) end = start + 1;
+      chunks.add((start: start, text: content.substring(start, end)));
+      start = end;
+    }
+    return chunks;
+  }
+
+  static bool _isHighSurrogate(int unit) => unit >= 0xD800 && unit <= 0xDBFF;
 
   @override
   Future<double> computeConfidence(String fragment) =>
@@ -96,7 +142,8 @@ class LlmEvidencePort implements bundle.EvidencePort {
     throw const FormatException('reply is not a list of units');
   }
 
-  bundle.EvidenceFragment? _toFragment(dynamic item, String content) {
+  bundle.EvidenceFragment? _toFragment(
+      dynamic item, String content, int chunkStart) {
     if (item is! Map) return null;
     final text = item['text'];
     final kind = item['kind'];
@@ -110,7 +157,8 @@ class LlmEvidencePort implements bundle.EvidencePort {
     var verbatim = item['verbatim'] == true;
     int? offset;
     if (verbatim) {
-      final at = content.indexOf(text);
+      var at = content.indexOf(text, chunkStart);
+      if (at < 0) at = content.indexOf(text);
       if (at < 0) {
         verbatim = false;
       } else {
